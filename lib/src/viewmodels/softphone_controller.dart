@@ -701,7 +701,7 @@ class SoftphoneController extends ChangeNotifier {
         );
       }
     } catch (_) {
-      // Best effort while the WebRTC audio session settles.
+      // Best effort while the native audio route settles.
     }
   }
 

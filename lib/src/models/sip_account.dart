@@ -1,7 +1,6 @@
 class SipAccount {
   const SipAccount({
     required this.label,
-    required this.websocketUrl,
     required this.domain,
     required this.extension,
     required this.authorizationId,
@@ -10,7 +9,6 @@ class SipAccount {
   });
 
   final String label;
-  final String websocketUrl;
   final String domain;
   final String extension;
   final String authorizationId;
@@ -19,7 +17,6 @@ class SipAccount {
 
   SipAccount copyWith({
     String? label,
-    String? websocketUrl,
     String? domain,
     String? extension,
     String? authorizationId,
@@ -28,7 +25,6 @@ class SipAccount {
   }) {
     return SipAccount(
       label: label ?? this.label,
-      websocketUrl: websocketUrl ?? this.websocketUrl,
       domain: domain ?? this.domain,
       extension: extension ?? this.extension,
       authorizationId: authorizationId ?? this.authorizationId,
@@ -40,7 +36,6 @@ class SipAccount {
   Map<String, String> toJson() {
     return {
       'label': label,
-      'websocketUrl': websocketUrl,
       'domain': domain,
       'extension': extension,
       'authorizationId': authorizationId,
@@ -52,7 +47,6 @@ class SipAccount {
   factory SipAccount.fromJson(Map<String, dynamic> json) {
     return SipAccount(
       label: json['label'] as String? ?? 'Compte principal',
-      websocketUrl: json['websocketUrl'] as String? ?? '',
       domain: json['domain'] as String? ?? '',
       extension: json['extension'] as String? ?? '',
       authorizationId: json['authorizationId'] as String? ?? '',
@@ -63,7 +57,6 @@ class SipAccount {
 
   static const empty = SipAccount(
     label: 'Compte principal',
-    websocketUrl: '',
     domain: '',
     extension: '',
     authorizationId: '',

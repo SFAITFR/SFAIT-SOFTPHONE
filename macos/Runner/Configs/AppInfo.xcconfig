@@ -13,6 +13,10 @@ PRODUCT_BUNDLE_IDENTIFIER = fr.sfait.sfaitSoftphone
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 fr.sfait. All rights reserved.
 
+// PJProject is currently built for Apple Silicon only.
+ARCHS = arm64
+ONLY_ACTIVE_ARCH = YES
+
 SWIFT_OBJC_BRIDGING_HEADER = Runner/Runner-Bridging-Header.h
 GCC_PREPROCESSOR_DEFINITIONS = $(inherited) PJ_AUTOCONF=1 PJ_IS_BIG_ENDIAN=0 PJ_IS_LITTLE_ENDIAN=1
 HEADER_SEARCH_PATHS = $(inherited) "$(PROJECT_DIR)/../vendor/pjproject/pjlib/include" "$(PROJECT_DIR)/../vendor/pjproject/pjlib-util/include" "$(PROJECT_DIR)/../vendor/pjproject/pjnath/include" "$(PROJECT_DIR)/../vendor/pjproject/pjmedia/include" "$(PROJECT_DIR)/../vendor/pjproject/pjsip/include"

@@ -336,7 +336,6 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
   SipAccount _buildAccount() {
     return SipAccount(
       label: 'Compte principal',
-      websocketUrl: '',
       domain: _domainController.text.trim(),
       extension: _extensionController.text.trim(),
       authorizationId: _authController.text.trim(),
