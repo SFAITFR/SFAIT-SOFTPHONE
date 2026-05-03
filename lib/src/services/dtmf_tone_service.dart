@@ -6,17 +6,11 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 
 class DtmfToneService {
-  DtmfToneService() {
-    _player
-      ..setPlayerMode(PlayerMode.lowLatency)
-      ..setReleaseMode(ReleaseMode.stop);
-  }
-
   static const int _sampleRate = 16000;
   static const int _durationMs = 120;
   static const double _volume = 0.32;
 
-  final AudioPlayer _player = AudioPlayer();
+  AudioPlayer? _player;
   final Map<String, String> _cache = <String, String>{};
 
   static const Map<String, (double, double)> _dtmfMap =
@@ -46,15 +40,31 @@ class DtmfToneService {
       () => _generateTone(pair.$1, pair.$2),
     );
 
-    await _player.stop();
-    await _player.play(
+    final player = await _ensurePlayer();
+    await player.stop();
+    await player.play(
       DeviceFileSource(filePath, mimeType: 'audio/wav'),
       volume: _volume,
     );
   }
 
   Future<void> dispose() async {
-    await _player.dispose();
+    final player = _player;
+    _player = null;
+    await player?.dispose();
+  }
+
+  Future<AudioPlayer> _ensurePlayer() async {
+    final existing = _player;
+    if (existing != null) {
+      return existing;
+    }
+
+    final player = AudioPlayer();
+    await player.setPlayerMode(PlayerMode.lowLatency);
+    await player.setReleaseMode(ReleaseMode.stop);
+    _player = player;
+    return player;
   }
 
   Future<String> _resolveToneFile(

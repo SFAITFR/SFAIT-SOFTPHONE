@@ -34,9 +34,6 @@ dependencies:
   provider: ^6.1.5
   shared_preferences: ^2.5.3
   path_provider: ^2.1.5
-  flutter_webrtc: ^1.4.1
-  launch_at_startup: ^0.3.1
-  sip_ua: ^1.1.0
   audioplayers: ^6.4.0
 
 dev_dependencies:

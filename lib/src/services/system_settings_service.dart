@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../models/audio_device_option.dart';
 import '../models/codec_option.dart';
@@ -177,21 +176,12 @@ class SystemSettingsService {
           orElse: () => null,
         );
 
-    if (option?.id.startsWith('pjsip:') ?? deviceId.startsWith('pjsip:')) {
+    final nativeDeviceId = option?.callDeviceId ?? option?.id ?? deviceId;
+    if (nativeDeviceId.startsWith('pjsip:')) {
       await _nativeSoftphoneChannel.invokeMethod<void>(
         'setAudioInput',
-        {'deviceId': option?.id ?? deviceId},
+        {'deviceId': nativeDeviceId},
       );
-      return;
-    }
-
-    for (final candidate in await _inputDeviceCandidates(option)) {
-      try {
-        await Helper.selectAudioInput(candidate);
-        return;
-      } catch (_) {
-        // Try the next known identifier for the same physical device.
-      }
     }
   }
 
@@ -204,21 +194,12 @@ class SystemSettingsService {
           orElse: () => null,
         );
 
-    if (option?.id.startsWith('pjsip:') ?? deviceId.startsWith('pjsip:')) {
+    final nativeDeviceId = option?.callDeviceId ?? option?.id ?? deviceId;
+    if (nativeDeviceId.startsWith('pjsip:')) {
       await _nativeSoftphoneChannel.invokeMethod<void>(
         'setAudioOutput',
-        {'deviceId': option?.id ?? deviceId},
+        {'deviceId': nativeDeviceId},
       );
-      return;
-    }
-
-    for (final candidate in await _outputDeviceCandidates(option)) {
-      try {
-        await Helper.selectAudioOutput(candidate);
-        return;
-      } catch (_) {
-        // Try the next known identifier for the same physical device.
-      }
     }
   }
 
@@ -236,15 +217,10 @@ class SystemSettingsService {
     }
 
     try {
-      final nativeDevices = await _listPjsipDevices('listAudioInputs', 'Micro');
-      if (nativeDevices.isNotEmpty) {
-        return nativeDevices;
-      }
+      return _listPjsipDevices('listAudioInputs', 'Micro');
     } catch (_) {
-      // Fall through to WebRTC devices.
+      return const <AudioDeviceOption>[];
     }
-
-    return _listWebRtcInputDevices();
   }
 
   Future<List<AudioDeviceOption>> _listCallOutputDevices() async {
@@ -253,16 +229,10 @@ class SystemSettingsService {
     }
 
     try {
-      final nativeDevices =
-          await _listPjsipDevices('listAudioOutputs', 'Sortie');
-      if (nativeDevices.isNotEmpty) {
-        return nativeDevices;
-      }
+      return _listPjsipDevices('listAudioOutputs', 'Sortie');
     } catch (_) {
-      // Fall through to WebRTC devices.
+      return const <AudioDeviceOption>[];
     }
-
-    return _listWebRtcOutputDevices();
   }
 
   Future<List<AudioDeviceOption>> _listNativeDevices(
@@ -314,151 +284,6 @@ class SystemSettingsService {
         )
         .where((device) => device.id.isNotEmpty)
         .toList(growable: false);
-  }
-
-  Future<List<AudioDeviceOption>> _listWebRtcInputDevices() async {
-    final devices = await _listWebRtcDevices();
-    return devices
-        .where((device) => device.kind == 'audioinput')
-        .map(
-          (device) => AudioDeviceOption(
-            id: device.deviceId,
-            label: _normalizeLabel(device.label, 'Micro'),
-            callDeviceId: device.deviceId,
-          ),
-        )
-        .toList(growable: false);
-  }
-
-  Future<List<AudioDeviceOption>> _listWebRtcOutputDevices() async {
-    final devices = await _listWebRtcDevices();
-    return devices
-        .where((device) => device.kind == 'audiooutput')
-        .map(
-          (device) => AudioDeviceOption(
-            id: device.deviceId,
-            label: _normalizeLabel(device.label, 'Sortie'),
-            callDeviceId: device.deviceId,
-          ),
-        )
-        .toList(growable: false);
-  }
-
-  Future<List<MediaDeviceInfo>> _listWebRtcDevices() async {
-    await _primeWebRtcDeviceDiscovery();
-    return (await navigator.mediaDevices.enumerateDevices())
-        .whereType<MediaDeviceInfo>()
-        .toList(growable: false);
-  }
-
-  Future<String?> _resolveCallInputDeviceId(AudioDeviceOption? option) async {
-    if (option == null) {
-      return null;
-    }
-    if (option.callDeviceId != null && option.callDeviceId!.isNotEmpty) {
-      return option.callDeviceId;
-    }
-
-    final devices = await _listWebRtcInputDevices();
-    return _matchWebRtcDeviceId(option.label, devices);
-  }
-
-  Future<String?> _resolveCallOutputDeviceId(AudioDeviceOption? option) async {
-    if (option == null) {
-      return null;
-    }
-    if (option.callDeviceId != null && option.callDeviceId!.isNotEmpty) {
-      return option.callDeviceId;
-    }
-
-    final devices = await _listWebRtcOutputDevices();
-    return _matchWebRtcDeviceId(option.label, devices);
-  }
-
-  Future<List<String>> _inputDeviceCandidates(AudioDeviceOption? option) async {
-    if (option == null) {
-      return const <String>[];
-    }
-
-    final candidates = <String>[
-      if (option.callDeviceId != null) option.callDeviceId!,
-      if (option.systemDeviceId != null) option.systemDeviceId!,
-      option.id,
-      if (await _resolveCallInputDeviceId(option) case final resolved?)
-        resolved,
-    ];
-
-    return _dedupeDeviceCandidates(candidates);
-  }
-
-  Future<List<String>> _outputDeviceCandidates(
-      AudioDeviceOption? option) async {
-    if (option == null) {
-      return const <String>[];
-    }
-
-    final candidates = <String>[
-      if (option.callDeviceId != null) option.callDeviceId!,
-      if (option.systemDeviceId != null) option.systemDeviceId!,
-      option.id,
-      if (await _resolveCallOutputDeviceId(option) case final resolved?)
-        resolved,
-    ];
-
-    return _dedupeDeviceCandidates(candidates);
-  }
-
-  List<String> _dedupeDeviceCandidates(List<String> candidates) {
-    final seen = <String>{};
-    return candidates
-        .where((candidate) => candidate.trim().isNotEmpty)
-        .where((candidate) => seen.add(candidate))
-        .toList(growable: false);
-  }
-
-  String? _matchWebRtcDeviceId(
-    String label,
-    List<AudioDeviceOption> devices,
-  ) {
-    final normalized = _normalizeComparisonLabel(label);
-
-    for (final device in devices) {
-      if (_normalizeComparisonLabel(device.label) == normalized) {
-        return device.callDeviceId ?? device.id;
-      }
-    }
-
-    for (final device in devices) {
-      final candidate = _normalizeComparisonLabel(device.label);
-      if (candidate.contains(normalized) || normalized.contains(candidate)) {
-        return device.callDeviceId ?? device.id;
-      }
-    }
-
-    return null;
-  }
-
-  Future<void> _primeWebRtcDeviceDiscovery() async {
-    MediaStream? stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        'audio': true,
-        'video': false,
-      });
-    } catch (_) {
-      return;
-    } finally {
-      if (stream != null) {
-        for (final track in stream.getTracks()) {
-          track.stop();
-        }
-        await stream.dispose();
-      }
-    }
-  }
-
-  String _normalizeComparisonLabel(String value) {
-    return value.trim().toLowerCase();
   }
 
   PrivacyPermissionKind _privacyKindFromNative(String? value) {

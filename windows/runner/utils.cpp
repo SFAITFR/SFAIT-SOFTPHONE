@@ -2,6 +2,7 @@
 
 #include <flutter_windows.h>
 #include <io.h>
+#include <shellapi.h>
 #include <stdio.h>
 #include <windows.h>
 
