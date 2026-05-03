@@ -146,56 +146,13 @@ void SetLaunchAtStartupEnabled(bool enabled) {
 
 HICON CreatePhoneTrayIcon() {
   const int size = std::max(16, GetSystemMetrics(SM_CXSMICON));
-  HDC screen_dc = GetDC(nullptr);
-  HDC color_dc = CreateCompatibleDC(screen_dc);
-  HBITMAP color_bitmap = CreateCompatibleBitmap(screen_dc, size, size);
-  HGDIOBJ old_color = SelectObject(color_dc, color_bitmap);
-
-  HDC mask_dc = CreateCompatibleDC(screen_dc);
-  HBITMAP mask_bitmap = CreateBitmap(size, size, 1, 1, nullptr);
-  HGDIOBJ old_mask = SelectObject(mask_dc, mask_bitmap);
-
-  RECT bounds{0, 0, size, size};
-  HBRUSH black_brush = CreateSolidBrush(RGB(0, 0, 0));
-  HBRUSH white_brush = CreateSolidBrush(RGB(255, 255, 255));
-  FillRect(color_dc, &bounds, black_brush);
-  FillRect(mask_dc, &bounds, white_brush);
-
-  HFONT font = CreateFontW(
-      -MulDiv(15, GetDeviceCaps(screen_dc, LOGPIXELSY), 72), 0, 0, 0,
-      FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-      CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI Symbol");
-
-  HGDIOBJ old_color_font = SelectObject(color_dc, font);
-  SetBkMode(color_dc, TRANSPARENT);
-  SetTextColor(color_dc, RGB(170, 205, 255));
-  DrawTextW(color_dc, L"\x260E", -1, &bounds,
-            DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-  HGDIOBJ old_mask_font = SelectObject(mask_dc, font);
-  SetBkMode(mask_dc, TRANSPARENT);
-  SetTextColor(mask_dc, RGB(0, 0, 0));
-  DrawTextW(mask_dc, L"\x260E", -1, &bounds,
-            DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-  ICONINFO icon_info{};
-  icon_info.fIcon = TRUE;
-  icon_info.hbmColor = color_bitmap;
-  icon_info.hbmMask = mask_bitmap;
-  HICON icon = CreateIconIndirect(&icon_info);
-
-  SelectObject(color_dc, old_color_font);
-  SelectObject(mask_dc, old_mask_font);
-  SelectObject(color_dc, old_color);
-  SelectObject(mask_dc, old_mask);
-  DeleteObject(font);
-  DeleteObject(black_brush);
-  DeleteObject(white_brush);
-  DeleteObject(color_bitmap);
-  DeleteObject(mask_bitmap);
-  DeleteDC(color_dc);
-  DeleteDC(mask_dc);
-  ReleaseDC(nullptr, screen_dc);
+  HICON icon = reinterpret_cast<HICON>(LoadImageW(
+      GetModuleHandle(nullptr),
+      MAKEINTRESOURCEW(IDI_APP_ICON),
+      IMAGE_ICON,
+      size,
+      size,
+      LR_DEFAULTCOLOR));
 
   return icon != nullptr ? icon : LoadIcon(GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON));
 }
