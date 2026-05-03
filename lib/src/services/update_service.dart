@@ -18,8 +18,6 @@ class UpdateService {
   static const _repository = 'SFAITFR/SFAIT-SOFTPHONE';
   static const _releaseAssetPrefix = 'sfait-softphone';
   static const _windowsInstallerAsset = 'SFAIT_Softphone_installer.msi';
-  static const _windowsSetupAsset = 'SFAIT_Softphone_setup.exe';
-  static const _windowsPortableAsset = 'SFAIT_Softphone_windows_x64.zip';
   static const _updaterChannel = MethodChannel('sfait/updater');
 
   bool get isSupported => !kIsWeb && (Platform.isMacOS || Platform.isWindows);
@@ -196,12 +194,6 @@ class UpdateService {
       _windowsInstallerAsset,
       '$_releaseAssetPrefix-$version-$arch.msi',
       '$_releaseAssetPrefix-$version-windows-$arch.msi',
-      _windowsSetupAsset,
-      '$_releaseAssetPrefix-$version-$arch.exe',
-      '$_releaseAssetPrefix-$version-windows-$arch.exe',
-      _windowsPortableAsset,
-      '$_releaseAssetPrefix-$version-$arch.zip',
-      '$_releaseAssetPrefix-$version-windows-$arch.zip',
     ];
 
     for (final expectedName in expectedNames) {
@@ -254,12 +246,7 @@ class UpdateService {
   }
 
   bool _isWindowsUpdateAsset(String name) {
-    if (name.endsWith('.msi') || name.endsWith('.zip')) {
-      return true;
-    }
-
-    return name.endsWith('.exe') &&
-        (name.contains('setup') || name.contains('install'));
+    return name.endsWith('.msi');
   }
 
   Future<void> _installWindowsUpdate(File installer) async {
@@ -268,21 +255,8 @@ class UpdateService {
     if (lowerPath.endsWith('.msi')) {
       await _installWindowsMsiUpdate(installer);
       return;
-    } else if (lowerPath.endsWith('.exe')) {
-      await Process.start(
-        path,
-        const <String>[],
-        mode: ProcessStartMode.detached,
-      );
-    } else if (lowerPath.endsWith('.zip')) {
-      await _installWindowsZipUpdate(installer);
-      return;
-    } else {
-      throw StateError('Installateur Windows non pris en charge.');
     }
-
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    exit(0);
+    throw StateError('Installateur Windows non pris en charge.');
   }
 
   Future<void> _installWindowsMsiUpdate(File installer) async {
@@ -321,85 +295,6 @@ class UpdateService {
 
     await Future<void>.delayed(const Duration(milliseconds: 300));
     exit(0);
-  }
-
-  Future<void> _installWindowsZipUpdate(File archive) async {
-    final appDirectory = File(Platform.resolvedExecutable).parent;
-    final script = File(
-      _joinPath([
-        Directory.systemTemp.path,
-        'sfait-softphone-updates',
-        'install-${DateTime.now().millisecondsSinceEpoch}.ps1',
-      ]),
-    );
-    await script.parent.create(recursive: true);
-    await script.writeAsString(
-      _windowsZipUpdateScript(
-        zipPath: archive.path,
-        targetDirectory: appDirectory.path,
-        processId: pid,
-      ),
-    );
-
-    await Process.start(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-WindowStyle',
-        'Hidden',
-        '-File',
-        script.path,
-      ],
-      mode: ProcessStartMode.detached,
-    );
-
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    exit(0);
-  }
-
-  String _windowsZipUpdateScript({
-    required String zipPath,
-    required String targetDirectory,
-    required int processId,
-  }) {
-    final quotedZip = _powerShellSingleQuoted(zipPath);
-    final quotedTarget = _powerShellSingleQuoted(targetDirectory);
-    return '''
-\$ErrorActionPreference = 'Stop'
-\$zipPath = $quotedZip
-\$targetDirectory = $quotedTarget
-\$processId = $processId
-
-try {
-  Wait-Process -Id \$processId -Timeout 8 -ErrorAction SilentlyContinue
-} catch {
-}
-
-\$stageRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('sfait-softphone-update-' + [Guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path \$stageRoot -Force | Out-Null
-
-try {
-  Expand-Archive -LiteralPath \$zipPath -DestinationPath \$stageRoot -Force
-  \$sourceDirectory = \$stageRoot
-  \$nestedDirectory = Join-Path \$stageRoot 'SFAIT Softphone'
-  if (Test-Path (Join-Path \$nestedDirectory 'sfait_softphone.exe')) {
-    \$sourceDirectory = \$nestedDirectory
-  }
-
-  Copy-Item -Path (Join-Path \$sourceDirectory '*') -Destination \$targetDirectory -Recurse -Force
-} finally {
-  if (Test-Path \$stageRoot) {
-    Remove-Item -LiteralPath \$stageRoot -Recurse -Force
-  }
-}
-
-\$exePath = Join-Path \$targetDirectory 'sfait_softphone.exe'
-if (Test-Path \$exePath) {
-  Start-Process -FilePath \$exePath
-}
-''';
   }
 
   String _windowsMsiUpdateCommand({
@@ -484,10 +379,6 @@ shell.Run Chr(34) & "$escapedPath" & Chr(34), 0, False
       }
     }
     return path;
-  }
-
-  String _powerShellSingleQuoted(String value) {
-    return "'${value.replaceAll("'", "''")}'";
   }
 
   int _compareVersions(String left, String right) {

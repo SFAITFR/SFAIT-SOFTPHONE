@@ -20,29 +20,20 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 }
 
 $tag = "v$Version"
-$packageOutput = & (Join-Path $PSScriptRoot "package-windows-release.ps1") `
-    -Version $Version `
-    -BuildNumber $BuildNumber `
-    -FlutterBin $FlutterBin
 $msiOutput = & (Join-Path $PSScriptRoot "package-windows-msi.ps1") `
     -Version $Version `
     -BuildNumber $BuildNumber `
     -FlutterBin $FlutterBin
 
-$zipPath = Join-Path $repoRoot "dist\releases\$tag\sfait-softphone-$Version-windows-x64.zip"
-$shaPath = "$zipPath.sha256"
 $msiPath = Join-Path $repoRoot "dist\releases\$tag\SFAIT_Softphone_installer.msi"
 $msiShaPath = "$msiPath.sha256"
 
-if (-not (Test-Path $zipPath) -or -not (Test-Path $shaPath) -or
-    -not (Test-Path $msiPath) -or -not (Test-Path $msiShaPath)) {
-    throw "Windows release assets were not generated."
+if (-not (Test-Path $msiPath) -or -not (Test-Path $msiShaPath)) {
+    throw "Windows MSI release assets were not generated."
 }
 
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Write-Host "GitHub CLI is not installed. Upload these files to release ${tag}:"
-    Write-Host "- $zipPath"
-    Write-Host "- $shaPath"
     Write-Host "- $msiPath"
     Write-Host "- $msiShaPath"
     return
@@ -51,8 +42,6 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
 & gh auth status --hostname github.com *> $null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "GitHub CLI is not authenticated. Upload these files to release ${tag}:"
-    Write-Host "- $zipPath"
-    Write-Host "- $shaPath"
     Write-Host "- $msiPath"
     Write-Host "- $msiShaPath"
     return
@@ -65,9 +54,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if ($releaseExists) {
-    & gh release upload $tag $zipPath $shaPath $msiPath $msiShaPath --repo $Repository --clobber
+    & gh release upload $tag $msiPath $msiShaPath --repo $Repository --clobber
 } else {
-    & gh release create $tag $zipPath $shaPath $msiPath $msiShaPath `
+    & gh release create $tag $msiPath $msiShaPath `
         --repo $Repository `
         --title "SFAIT Softphone $Version" `
         --notes "Release SFAIT Softphone $Version."
