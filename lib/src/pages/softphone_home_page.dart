@@ -1298,6 +1298,7 @@ class _SettingsTabState extends State<_SettingsTab> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final isCallActive = widget.status == SoftphoneConnectionStatus.inCall ||
         widget.status == SoftphoneConnectionStatus.calling ||
         widget.status == SoftphoneConnectionStatus.ringing;
@@ -1324,12 +1325,12 @@ class _SettingsTabState extends State<_SettingsTab> {
     final hasPbxChanges = _hasPbxChanges(selectedCodec);
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        color: Theme.of(context).colorScheme.surface.withOpacity(0.72),
+        borderRadius: BorderRadius.circular(20),
+        color: theme.colorScheme.surface.withOpacity(0.76),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.28),
+          color: theme.colorScheme.outlineVariant.withOpacity(0.26),
         ),
       ),
       child: Stack(
@@ -1340,21 +1341,21 @@ class _SettingsTabState extends State<_SettingsTab> {
             children: [
               Text(
                 'Réglages',
-                style: Theme.of(context).textTheme.titleLarge,
+                style: theme.textTheme.titleLarge,
               ),
-              const SizedBox(height: 14),
-              _SlimSegmentedControl<int>(
+              const SizedBox(height: 10),
+              _MacSettingsToolbar<int>(
                 value: _sectionIndex,
                 items: const [
-                  (0, 'Général'),
-                  (1, 'PBX'),
-                  (2, 'Confidentialité'),
+                  (0, Icons.settings_outlined, 'Général'),
+                  (1, Icons.alternate_email_rounded, 'PBX'),
+                  (2, Icons.privacy_tip_outlined, 'Confidentialité'),
                 ],
                 onChanged: (value) {
                   setState(() => _sectionIndex = value);
                 },
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
               if (isCallActive)
                 Container(
                   width: double.infinity,
@@ -1363,14 +1364,14 @@ class _SettingsTabState extends State<_SettingsTab> {
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(14),
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest
-                        .withOpacity(0.8),
+                    color:
+                        theme.colorScheme.surfaceContainerHighest.withOpacity(
+                      0.8,
+                    ),
                   ),
                   child: Text(
                     'Vous ne pouvez pas modifier les paramètres pendant un appel.',
-                    style: Theme.of(context).textTheme.bodySmall,
+                    style: theme.textTheme.bodySmall,
                   ),
                 ),
               Expanded(
@@ -1380,362 +1381,25 @@ class _SettingsTabState extends State<_SettingsTab> {
                     opacity: isCallActive ? 0.48 : 1,
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 180),
+                      layoutBuilder: (currentChild, previousChildren) {
+                        return Stack(
+                          alignment: Alignment.topCenter,
+                          children: [
+                            ...previousChildren,
+                            if (currentChild != null) currentChild,
+                          ],
+                        );
+                      },
                       child: switch (_sectionIndex) {
-                        0 => SingleChildScrollView(
-                            key: const ValueKey('general-section'),
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Column(
-                              children: [
-                                _CompactSwitchRow(
-                                  label: 'Icône barre de menus',
-                                  value: widget.generalSettings.showMenuBarIcon,
-                                  onChanged: widget.onMenuBarIconChanged,
-                                ),
-                                const SizedBox(height: 6),
-                                _CompactSwitchRow(
-                                  label: 'Icône dans le Dock',
-                                  value: widget.generalSettings.showDockIcon,
-                                  onChanged: widget.onDockIconChanged,
-                                ),
-                                const SizedBox(height: 6),
-                                _CompactSwitchRow(
-                                  label: 'Lancer au démarrage du Mac',
-                                  value: widget.generalSettings.launchAtStartup,
-                                  onChanged: widget.onLaunchAtStartupChanged,
-                                ),
-                                const SizedBox(height: 8),
-                                _FieldBox(
-                                  label: 'Thème',
-                                  child:
-                                      _SlimSegmentedControl<AppThemePreference>(
-                                    value:
-                                        widget.generalSettings.themePreference,
-                                    items: const [
-                                      (AppThemePreference.dark, 'Sombre'),
-                                      (AppThemePreference.light, 'Clair'),
-                                    ],
-                                    onChanged: (value) {
-                                      widget.onThemeChanged(value);
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                _FieldBox(
-                                  label: 'Micro',
-                                  child: DropdownButtonFormField<String>(
-                                    value: selectedInput,
-                                    hint: const Text('Sélectionner un micro'),
-                                    items: widget.audioInputs
-                                        .map(
-                                          (device) => DropdownMenuItem<String>(
-                                            value: device.id,
-                                            child: Text(
-                                              device.label,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        )
-                                        .toList(growable: false),
-                                    isExpanded: true,
-                                    onChanged: widget.audioInputs.isEmpty
-                                        ? null
-                                        : (value) {
-                                            if (value != null) {
-                                              widget.onAudioInputChanged(value);
-                                            }
-                                          },
-                                    decoration: InputDecoration(
-                                      isDense: true,
-                                      helperText: widget.audioInputs.isEmpty
-                                          ? 'Aucun micro détecté pour le moment.'
-                                          : null,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                _FieldBox(
-                                  label: 'Haut-parleur',
-                                  child: DropdownButtonFormField<String>(
-                                    value: selectedOutput,
-                                    hint: const Text(
-                                      'Sélectionner une sortie audio',
-                                    ),
-                                    items: widget.audioOutputs
-                                        .map(
-                                          (device) => DropdownMenuItem<String>(
-                                            value: device.id,
-                                            child: Text(
-                                              device.label,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        )
-                                        .toList(growable: false),
-                                    isExpanded: true,
-                                    onChanged: widget.audioOutputs.isEmpty
-                                        ? null
-                                        : (value) {
-                                            if (value != null) {
-                                              widget
-                                                  .onAudioOutputChanged(value);
-                                            }
-                                          },
-                                    decoration: InputDecoration(
-                                      isDense: true,
-                                      helperText: widget.audioOutputs.isEmpty
-                                          ? 'Aucune sortie audio détectée pour le moment.'
-                                          : null,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                _FieldBox(
-                                  label: 'Sortie sonnerie',
-                                  child: DropdownButtonFormField<String>(
-                                    value: selectedRingtoneOutput,
-                                    hint: const Text(
-                                      'Sélectionner une sortie de sonnerie',
-                                    ),
-                                    items: widget.ringtoneOutputs
-                                        .map(
-                                          (device) => DropdownMenuItem<String>(
-                                            value: device.id,
-                                            child: Text(
-                                              device.label,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        )
-                                        .toList(growable: false),
-                                    isExpanded: true,
-                                    onChanged: widget.ringtoneOutputs.isEmpty
-                                        ? null
-                                        : (value) {
-                                            if (value != null) {
-                                              widget.onRingtoneOutputChanged(
-                                                value,
-                                              );
-                                            }
-                                          },
-                                    decoration: InputDecoration(
-                                      isDense: true,
-                                      helperText: widget.ringtoneOutputs.isEmpty
-                                          ? 'Aucune sortie audio détectée pour le moment.'
-                                          : null,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                _FieldBox(
-                                  label: 'Volume sonnerie',
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Slider(
-                                          value: widget
-                                              .generalSettings.ringtoneVolume,
-                                          min: 0,
-                                          max: 1,
-                                          divisions: 20,
-                                          label:
-                                              '${(widget.generalSettings.ringtoneVolume * 100).round()}%',
-                                          onChanged: (value) {
-                                            widget.onRingtoneVolumeChanged(
-                                              value,
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: 48,
-                                        child: Text(
-                                          '${(widget.generalSettings.ringtoneVolume * 100).round()}%',
-                                          textAlign: TextAlign.right,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .labelLarge,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                _FieldBox(
-                                  label: 'Sonnerie personnalisée',
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Container(
-                                              height: 44,
-                                              alignment: Alignment.centerLeft,
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                borderRadius:
-                                                    BorderRadius.circular(14),
-                                                border: Border.all(
-                                                  color: Theme.of(context)
-                                                      .colorScheme
-                                                      .outlineVariant
-                                                      .withOpacity(0.6),
-                                                ),
-                                              ),
-                                              child: Text(
-                                                widget
-                                                        .generalSettings
-                                                        .ringtoneFileName
-                                                        .isEmpty
-                                                    ? 'Sonnerie par défaut'
-                                                    : widget.generalSettings
-                                                        .ringtoneFileName,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          OutlinedButton.icon(
-                                            onPressed: () {
-                                              widget.onImportCustomRingtone();
-                                            },
-                                            icon: const Icon(
-                                              Icons.library_music_outlined,
-                                            ),
-                                            label: const Text('Importer'),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        'Formats acceptés : MP3, WAV, M4A, AIFF, CAF.',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
+                        0 => _buildGeneralSection(
+                            context,
+                            selectedInput: selectedInput,
+                            selectedOutput: selectedOutput,
+                            selectedRingtoneOutput: selectedRingtoneOutput,
                           ),
-                        1 => SingleChildScrollView(
-                            key: const ValueKey('pbx-section'),
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Column(
-                              children: [
-                                _FieldBox(
-                                  label: 'Domaine SIP',
-                                  child: TextField(
-                                    controller: widget.domainController,
-                                    enabled: !isCallActive,
-                                    decoration:
-                                        const InputDecoration(isDense: true),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _FieldBox(
-                                        label: 'Extension',
-                                        child: TextField(
-                                          controller:
-                                              widget.extensionController,
-                                          enabled: !isCallActive,
-                                          decoration: const InputDecoration(
-                                              isDense: true),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: _FieldBox(
-                                        label: 'Auth ID',
-                                        child: TextField(
-                                          controller: widget.authController,
-                                          enabled: !isCallActive,
-                                          decoration: const InputDecoration(
-                                              isDense: true),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _FieldBox(
-                                        label: 'Nom affiché',
-                                        child: TextField(
-                                          controller:
-                                              widget.displayNameController,
-                                          enabled: !isCallActive,
-                                          decoration: const InputDecoration(
-                                              isDense: true),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: _FieldBox(
-                                        label: 'Mot de passe',
-                                        child: TextField(
-                                          controller: widget.passwordController,
-                                          enabled: !isCallActive,
-                                          obscureText: true,
-                                          decoration: const InputDecoration(
-                                              isDense: true),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                _FieldBox(
-                                  label: 'Codec audio',
-                                  child: DropdownButtonFormField<String>(
-                                    value: selectedCodec,
-                                    items: [
-                                      const DropdownMenuItem<String>(
-                                        value: '',
-                                        child: Text(
-                                          'Automatique',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      ...widget.audioCodecs.map(
-                                        (codec) => DropdownMenuItem<String>(
-                                          value: codec.id,
-                                          child: Text(
-                                            codec.label,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                    isExpanded: true,
-                                    onChanged: (value) {
-                                      setState(
-                                        () => _pendingCodecId = value ?? '',
-                                      );
-                                    },
-                                    decoration: InputDecoration(
-                                      isDense: true,
-                                      helperText: widget.audioCodecs.isEmpty
-                                          ? 'Aucun codec détecté pour le moment.'
-                                          : 'Automatique utilise la négociation du PBX.',
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                        1 => _buildPbxSection(
+                            selectedCodec: selectedCodec,
+                            isCallActive: isCallActive,
                           ),
                         _ => _PrivacySettingsSection(
                             key: const ValueKey('privacy-section'),
@@ -1780,6 +1444,274 @@ class _SettingsTabState extends State<_SettingsTab> {
     );
   }
 
+  Widget _buildGeneralSection(
+    BuildContext context, {
+    required String? selectedInput,
+    required String? selectedOutput,
+    required String? selectedRingtoneOutput,
+  }) {
+    final theme = Theme.of(context);
+    final ringtoneVolume = widget.generalSettings.ringtoneVolume;
+
+    return SingleChildScrollView(
+      key: const ValueKey('general-section'),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        children: [
+          _MacSettingsGroup(
+            title: 'Application',
+            children: [
+              _MacSettingsRow(
+                label: 'Barre de menus',
+                child: _MacSwitch(
+                  value: widget.generalSettings.showMenuBarIcon,
+                  onChanged: widget.onMenuBarIconChanged,
+                ),
+              ),
+              _MacSettingsRow(
+                label: 'Dock',
+                child: _MacSwitch(
+                  value: widget.generalSettings.showDockIcon,
+                  onChanged: widget.onDockIconChanged,
+                ),
+              ),
+              _MacSettingsRow(
+                label: 'Au démarrage',
+                child: _MacSwitch(
+                  value: widget.generalSettings.launchAtStartup,
+                  onChanged: widget.onLaunchAtStartupChanged,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _MacSettingsGroup(
+            title: 'Apparence',
+            children: [
+              _MacSettingsRow(
+                label: 'Thème',
+                child: _MacSegmentedControl<AppThemePreference>(
+                  value: widget.generalSettings.themePreference,
+                  items: const [
+                    (AppThemePreference.dark, 'Sombre'),
+                    (AppThemePreference.light, 'Clair'),
+                  ],
+                  onChanged: widget.onThemeChanged,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _MacSettingsGroup(
+            title: 'Audio',
+            children: [
+              _MacSettingsRow(
+                label: 'Micro',
+                child: _MacPopupButton<String>(
+                  value: selectedInput,
+                  placeholder: 'Sélectionner un micro',
+                  items: widget.audioInputs
+                      .map((device) => (device.id, device.label))
+                      .toList(growable: false),
+                  helperText: widget.audioInputs.isEmpty
+                      ? 'Aucun micro détecté pour le moment.'
+                      : null,
+                  onChanged: widget.audioInputs.isEmpty
+                      ? null
+                      : widget.onAudioInputChanged,
+                ),
+              ),
+              _MacSettingsRow(
+                label: 'Sortie appel',
+                child: _MacPopupButton<String>(
+                  value: selectedOutput,
+                  placeholder: 'Sélectionner une sortie',
+                  items: widget.audioOutputs
+                      .map((device) => (device.id, device.label))
+                      .toList(growable: false),
+                  helperText: widget.audioOutputs.isEmpty
+                      ? 'Aucune sortie audio détectée pour le moment.'
+                      : null,
+                  onChanged: widget.audioOutputs.isEmpty
+                      ? null
+                      : widget.onAudioOutputChanged,
+                ),
+              ),
+              _MacSettingsRow(
+                label: 'Sortie sonnerie',
+                child: _MacPopupButton<String>(
+                  value: selectedRingtoneOutput,
+                  placeholder: 'Sélectionner une sortie',
+                  items: widget.ringtoneOutputs
+                      .map((device) => (device.id, device.label))
+                      .toList(growable: false),
+                  helperText: widget.ringtoneOutputs.isEmpty
+                      ? 'Aucune sortie audio détectée pour le moment.'
+                      : null,
+                  onChanged: widget.ringtoneOutputs.isEmpty
+                      ? null
+                      : widget.onRingtoneOutputChanged,
+                ),
+              ),
+              _MacSettingsRow(
+                label: 'Volume sonnerie',
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Slider(
+                        value: ringtoneVolume,
+                        min: 0,
+                        max: 1,
+                        divisions: 20,
+                        label: '${(ringtoneVolume * 100).round()}%',
+                        onChanged: widget.onRingtoneVolumeChanged,
+                      ),
+                    ),
+                    SizedBox(
+                      width: 42,
+                      child: Text(
+                        '${(ringtoneVolume * 100).round()}%',
+                        textAlign: TextAlign.right,
+                        style: theme.textTheme.labelMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _MacSettingsGroup(
+            title: 'Sonnerie',
+            children: [
+              _MacSettingsRow(
+                label: 'Fichier',
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _MacValuePill(
+                        text: widget.generalSettings.ringtoneFileName.isEmpty
+                            ? 'Sonnerie par défaut'
+                            : widget.generalSettings.ringtoneFileName,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _MacSmallButton(
+                      icon: Icons.library_music_outlined,
+                      label: 'Importer',
+                      onPressed: widget.onImportCustomRingtone,
+                    ),
+                  ],
+                ),
+              ),
+              Builder(
+                builder: (context) {
+                  final theme = Theme.of(context);
+
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Formats acceptés : MP3, WAV, M4A, AIFF, CAF.',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.15,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPbxSection({
+    required String selectedCodec,
+    required bool isCallActive,
+  }) {
+    return SingleChildScrollView(
+      key: const ValueKey('pbx-section'),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        children: [
+          _MacSettingsGroup(
+            title: 'Compte SIP',
+            children: [
+              _MacSettingsRow(
+                label: 'Domaine',
+                child: _MacTextField(
+                  controller: widget.domainController,
+                  enabled: !isCallActive,
+                ),
+              ),
+              _MacSettingsRow(
+                label: 'Extension',
+                child: _MacTextField(
+                  controller: widget.extensionController,
+                  enabled: !isCallActive,
+                ),
+              ),
+              _MacSettingsRow(
+                label: 'Auth ID',
+                child: _MacTextField(
+                  controller: widget.authController,
+                  enabled: !isCallActive,
+                ),
+              ),
+              _MacSettingsRow(
+                label: 'Nom affiché',
+                child: _MacTextField(
+                  controller: widget.displayNameController,
+                  enabled: !isCallActive,
+                ),
+              ),
+              _MacSettingsRow(
+                label: 'Mot de passe',
+                child: _MacTextField(
+                  controller: widget.passwordController,
+                  enabled: !isCallActive,
+                  obscureText: true,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _MacSettingsGroup(
+            title: 'Média',
+            children: [
+              _MacSettingsRow(
+                label: 'Codec audio',
+                child: _MacPopupButton<String>(
+                  value: selectedCodec,
+                  placeholder: 'Automatique',
+                  items: [
+                    const ('', 'Automatique'),
+                    ...widget.audioCodecs.map(
+                      (codec) => (codec.id, codec.label),
+                    ),
+                  ],
+                  helperText: widget.audioCodecs.isEmpty
+                      ? 'Aucun codec détecté pour le moment.'
+                      : 'Automatique utilise la négociation du PBX.',
+                  onChanged: (value) {
+                    setState(() => _pendingCodecId = value);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   bool _hasPbxChanges(String selectedCodec) {
     return widget.domainController.text.trim() !=
             widget.account.domain.trim() ||
@@ -1794,38 +1726,525 @@ class _SettingsTabState extends State<_SettingsTab> {
   }
 }
 
-class _CompactSwitchRow extends StatelessWidget {
-  const _CompactSwitchRow({
+class _MacSettingsToolbar<T> extends StatelessWidget {
+  const _MacSettingsToolbar({
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+
+  final T value;
+  final List<(T, IconData, String)> items;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      height: 58,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.42),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withOpacity(0.32),
+        ),
+      ),
+      child: Row(
+        children: items.map((item) {
+          final (itemValue, icon, label) = item;
+          final selected = value == itemValue;
+
+          return Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(11),
+              onTap: () => onChanged(itemValue),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOut,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(11),
+                  color: selected
+                      ? theme.colorScheme.primary.withOpacity(0.16)
+                      : Colors.transparent,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      icon,
+                      size: 18,
+                      color: selected
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontSize: 10,
+                        fontWeight:
+                            selected ? FontWeight.w800 : FontWeight.w600,
+                        color: selected
+                            ? theme.colorScheme.onSurface
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(growable: false),
+      ),
+    );
+  }
+}
+
+class _MacSettingsGroup extends StatelessWidget {
+  const _MacSettingsGroup({
+    required this.title,
+    required this.children,
+  });
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final separated = <Widget>[];
+    for (var index = 0; index < children.length; index += 1) {
+      if (index > 0) {
+        separated.add(
+          Divider(
+            height: 1,
+            indent: 12,
+            endIndent: 12,
+            color: theme.colorScheme.outlineVariant.withOpacity(0.28),
+          ),
+        );
+      }
+      separated.add(children[index]);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 0, 6),
+          child: Text(
+            title,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: theme.colorScheme.surfaceContainerHighest.withOpacity(
+              theme.brightness == Brightness.dark ? 0.28 : 0.54,
+            ),
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withOpacity(0.34),
+            ),
+          ),
+          child: Column(children: separated),
+        ),
+      ],
+    );
+  }
+}
+
+class _MacSettingsRow extends StatelessWidget {
+  const _MacSettingsRow({
     required this.label,
+    required this.child,
+  });
+
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 106,
+            child: Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                height: 1.05,
+                color: theme.colorScheme.onSurface.withOpacity(0.92),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: child),
+        ],
+      ),
+    );
+  }
+}
+
+class _MacSwitch extends StatelessWidget {
+  const _MacSwitch({
     required this.value,
     required this.onChanged,
   });
 
-  final String label;
   final bool value;
   final ValueChanged<bool> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 34,
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Transform.scale(
+        scale: 0.82,
+        child: Switch.adaptive(
+          value: value,
+          onChanged: onChanged,
+        ),
+      ),
+    );
+  }
+}
+
+class _MacSegmentedControl<T> extends StatelessWidget {
+  const _MacSegmentedControl({
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+
+  final T value;
+  final List<(T, String)> items;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Align(
+      alignment: Alignment.centerRight,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 190),
+        child: Container(
+          height: 30,
+          padding: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(9),
+            color: theme.colorScheme.surface.withOpacity(0.75),
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withOpacity(0.46),
             ),
           ),
-          Switch.adaptive(
-            value: value,
-            onChanged: onChanged,
+          child: Row(
+            children: items.map((item) {
+              final (itemValue, label) = item;
+              final selected = itemValue == value;
+
+              return Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(7),
+                  onTap: () => onChanged(itemValue),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(7),
+                      color: selected
+                          ? theme.colorScheme.primary.withOpacity(0.18)
+                          : Colors.transparent,
+                    ),
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight:
+                            selected ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(growable: false),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MacPopupButton<T> extends StatelessWidget {
+  const _MacPopupButton({
+    required this.value,
+    required this.placeholder,
+    required this.items,
+    required this.onChanged,
+    this.helperText,
+  });
+
+  final T? value;
+  final String placeholder;
+  final List<(T, String)> items;
+  final ValueChanged<T>? onChanged;
+  final String? helperText;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final enabled = onChanged != null && items.isNotEmpty;
+    var selectedLabel = placeholder;
+    for (final item in items) {
+      if (item.$1 == value) {
+        selectedLabel = item.$2;
+        break;
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        PopupMenuButton<T>(
+          enabled: enabled,
+          tooltip: '',
+          position: PopupMenuPosition.under,
+          color: theme.colorScheme.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          onSelected: onChanged,
+          itemBuilder: (context) {
+            return items.map((item) {
+              final selected = item.$1 == value;
+              return PopupMenuItem<T>(
+                value: item.$1,
+                height: 34,
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 22,
+                      child: selected
+                          ? Icon(
+                              Icons.check_rounded,
+                              size: 16,
+                              color: theme.colorScheme.primary,
+                            )
+                          : null,
+                    ),
+                    Expanded(
+                      child: Text(
+                        item.$2,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(growable: false);
+          },
+          child: Opacity(
+            opacity: enabled ? 1 : 0.52,
+            child: Container(
+              height: 38,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                color: theme.colorScheme.surface.withOpacity(0.86),
+                border: Border.all(
+                  color: theme.colorScheme.outlineVariant.withOpacity(0.58),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      selectedLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.unfold_more_rounded,
+                    size: 17,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (helperText != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            helperText!,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              height: 1.1,
+            ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+class _MacTextField extends StatelessWidget {
+  const _MacTextField({
+    required this.controller,
+    required this.enabled,
+    this.obscureText = false,
+  });
+
+  final TextEditingController controller;
+  final bool enabled;
+  final bool obscureText;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      height: 38,
+      child: TextField(
+        controller: controller,
+        enabled: enabled,
+        obscureText: obscureText,
+        textAlignVertical: TextAlignVertical.center,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: theme.colorScheme.surface.withOpacity(0.86),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(
+              color: theme.colorScheme.outlineVariant.withOpacity(0.58),
+            ),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(
+              color: theme.colorScheme.outlineVariant.withOpacity(0.58),
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(
+              color: theme.colorScheme.primary,
+              width: 1.4,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MacValuePill extends StatelessWidget {
+  const _MacValuePill({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      height: 38,
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        color: theme.colorScheme.surface.withOpacity(0.86),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withOpacity(0.58),
+        ),
+      ),
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _MacSmallButton extends StatelessWidget {
+  const _MacSmallButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onPressed,
+      child: Container(
+        height: 38,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          color: theme.colorScheme.primary.withOpacity(0.12),
+          border: Border.all(
+            color: theme.colorScheme.primary.withOpacity(0.34),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: theme.colorScheme.primary),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1897,27 +2316,32 @@ class _PrivacySettingsSection extends StatelessWidget {
           ]
         : permissions;
 
-    return Column(
-      children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: onRefresh,
-            icon: const Icon(Icons.refresh, size: 17),
-            label: const Text('Actualiser'),
-          ),
-        ),
-        const SizedBox(height: 4),
-        ...displayedPermissions.map(
-          (permission) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _PrivacyPermissionTile(
-              permission: permission,
-              onOpenSettings: () => onOpenSettings(permission.kind),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: _MacSmallButton(
+              icon: Icons.refresh_rounded,
+              label: 'Actualiser',
+              onPressed: onRefresh,
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 12),
+          _MacSettingsGroup(
+            title: 'Autorisations',
+            children: displayedPermissions
+                .map(
+                  (permission) => _PrivacyPermissionTile(
+                    permission: permission,
+                    onOpenSettings: () => onOpenSettings(permission.kind),
+                  ),
+                )
+                .toList(growable: false),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1937,21 +2361,13 @@ class _PrivacyPermissionTile extends StatelessWidget {
     final activeColor = Colors.green.shade500;
     final inactiveColor = theme.colorScheme.error;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.54),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withOpacity(0.32),
-        ),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       child: Row(
         children: [
           Container(
-            width: 34,
-            height: 34,
+            width: 30,
+            height: 30,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: (permission.isActive ? activeColor : inactiveColor)
@@ -1962,7 +2378,7 @@ class _PrivacyPermissionTile extends StatelessWidget {
                   ? Icons.check_circle_outline
                   : Icons.error_outline,
               color: permission.isActive ? activeColor : inactiveColor,
-              size: 20,
+              size: 18,
             ),
           ),
           const SizedBox(width: 10),
@@ -1978,6 +2394,7 @@ class _PrivacyPermissionTile extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.titleSmall?.copyWith(
+                          fontSize: 13,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -1992,7 +2409,8 @@ class _PrivacyPermissionTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
-                    height: 1.15,
+                    fontSize: 11,
+                    height: 1.12,
                   ),
                 ),
               ],
@@ -2003,7 +2421,8 @@ class _PrivacyPermissionTile extends StatelessWidget {
             IconButton(
               tooltip: 'Ouvrir les réglages',
               onPressed: onOpenSettings,
-              icon: const Icon(Icons.open_in_new, size: 18),
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.open_in_new_rounded, size: 17),
             ),
           ],
         ],
@@ -2136,95 +2555,6 @@ class _BottomGlassNav extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _FieldBox extends StatelessWidget {
-  const _FieldBox({
-    required this.label,
-    required this.child,
-  });
-
-  final String label;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 6),
-          child: Text(label, style: Theme.of(context).textTheme.labelLarge),
-        ),
-        child,
-      ],
-    );
-  }
-}
-
-class _SlimSegmentedControl<T> extends StatelessWidget {
-  const _SlimSegmentedControl({
-    required this.value,
-    required this.items,
-    required this.onChanged,
-  });
-
-  final T value;
-  final List<(T, String)> items;
-  final ValueChanged<T> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        color: theme.colorScheme.surface,
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withOpacity(0.8),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: items.map((item) {
-          final (itemValue, label) = item;
-          final selected = itemValue == value;
-
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 1),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: () => onChanged(itemValue),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(999),
-                  color: selected
-                      ? theme.colorScheme.primary.withOpacity(0.18)
-                      : Colors.transparent,
-                ),
-                child: Text(
-                  label,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                    color: selected
-                        ? theme.colorScheme.onSurface
-                        : theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(growable: false),
       ),
     );
   }

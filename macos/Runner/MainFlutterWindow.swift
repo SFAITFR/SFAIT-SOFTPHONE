@@ -15,6 +15,8 @@ class MainFlutterWindow: NSWindow {
   private var standardStyleMask: NSWindow.StyleMask?
   private var standardTitleVisibility: NSWindow.TitleVisibility = .visible
   private var standardTitlebarAppearsTransparent = false
+  private var standardIsMovable = true
+  private var standardIsMovableByWindowBackground = false
   private var hasAppliedInitialPresentationOptions = false
 
   override func awakeFromNib() {
@@ -32,6 +34,8 @@ class MainFlutterWindow: NSWindow {
     standardStyleMask = self.styleMask
     standardTitleVisibility = self.titleVisibility
     standardTitlebarAppearsTransparent = self.titlebarAppearsTransparent
+    standardIsMovable = self.isMovable
+    standardIsMovableByWindowBackground = self.isMovableByWindowBackground
 
     configureLaunchAtStartupChannel(flutterViewController)
     configureSystemSettingsChannel(flutterViewController)
@@ -44,6 +48,15 @@ class MainFlutterWindow: NSWindow {
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()
+  }
+
+  override func close() {
+    if showMenuBarIcon || showDockIcon {
+      orderOut(nil)
+      return
+    }
+
+    super.close()
   }
 
   private func configureLaunchAtStartupChannel(_ flutterViewController: FlutterViewController) {
@@ -358,6 +371,8 @@ class MainFlutterWindow: NSWindow {
       styleMask.insert(.fullSizeContentView)
       titleVisibility = .hidden
       titlebarAppearsTransparent = true
+      isMovable = false
+      isMovableByWindowBackground = false
       standardWindowButton(.closeButton)?.isHidden = true
       standardWindowButton(.miniaturizeButton)?.isHidden = true
       standardWindowButton(.zoomButton)?.isHidden = true
@@ -369,6 +384,8 @@ class MainFlutterWindow: NSWindow {
     }
     titleVisibility = standardTitleVisibility
     titlebarAppearsTransparent = standardTitlebarAppearsTransparent
+    isMovable = standardIsMovable
+    isMovableByWindowBackground = standardIsMovableByWindowBackground
     standardWindowButton(.closeButton)?.isHidden = false
     standardWindowButton(.miniaturizeButton)?.isHidden = false
     standardWindowButton(.zoomButton)?.isHidden = false

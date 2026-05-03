@@ -19,7 +19,7 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    return !Self.menuBarModeIsEnabled
+    return false
   }
 
   override func applicationShouldHandleReopen(
