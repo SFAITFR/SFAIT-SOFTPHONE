@@ -1,0 +1,32 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Dart / Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+
+# Logs
+*.log
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# macOS generated files
+macos/Flutter/ephemeral/
+macos/Pods/
+
+# Windows generated files
+windows/flutter/ephemeral/
+windows/x64/
+windows/x86/
+windows/runner/*.user
+windows/runner/*.suo
