@@ -290,27 +290,24 @@ class UpdateService {
       _joinPath([
         Directory.systemTemp.path,
         'sfait-softphone-updates',
-        'install-msi-${DateTime.now().millisecondsSinceEpoch}.ps1',
+        'install-msi-${DateTime.now().millisecondsSinceEpoch}.cmd',
       ]),
     );
     await script.parent.create(recursive: true);
     await script.writeAsString(
-      _windowsMsiUpdateScript(
+      _windowsMsiUpdateCommand(
         msiPath: installer.path,
-        processId: pid,
       ),
+      encoding: systemEncoding,
     );
 
     await Process.start(
-      'powershell.exe',
+      'cmd.exe',
       [
-        '-NoProfile',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-WindowStyle',
-        'Hidden',
-        '-File',
-        script.path,
+        '/d',
+        '/s',
+        '/c',
+        'start "" /min "${script.path}"',
       ],
       mode: ProcessStartMode.detached,
     );
@@ -398,74 +395,62 @@ if (Test-Path \$exePath) {
 ''';
   }
 
-  String _windowsMsiUpdateScript({
+  String _windowsMsiUpdateCommand({
     required String msiPath,
-    required int processId,
   }) {
-    final quotedMsi = _powerShellSingleQuoted(msiPath);
+    final escapedMsi = msiPath.replaceAll('%', '%%');
     return '''
-\$ErrorActionPreference = 'Stop'
-\$msiPath = $quotedMsi
-\$processId = $processId
-\$logPath = Join-Path ([System.IO.Path]::GetTempPath()) 'sfait-softphone-msi-update.log'
-\$updaterLogPath = Join-Path ([System.IO.Path]::GetTempPath()) 'sfait-softphone-updater.log'
+@echo off
+setlocal EnableExtensions
+set "MSI_PATH=$escapedMsi"
+set "UPDATER_LOG=%TEMP%\\sfait-softphone-updater.log"
+set "MSI_LOG=%TEMP%\\sfait-softphone-msi-update.log"
 
-function Write-UpdateLog([string]\$message) {
-  \$timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-  Add-Content -Path \$updaterLogPath -Value "[\$timestamp] \$message"
-}
+echo [%DATE% %TIME%] MSI update runner started for %MSI_PATH%>>"%UPDATER_LOG%"
+ping -n 3 127.0.0.1 >nul
 
-function Show-UpdateError([string]\$message) {
-  try {
-    Add-Type -AssemblyName PresentationFramework
-    [System.Windows.MessageBox]::Show(\$message, 'SFAIT Softphone') | Out-Null
-  } catch {
-  }
-}
-
-try {
-  Write-UpdateLog "MSI update runner started for \$msiPath"
-  Wait-Process -Id \$processId -Timeout 8 -ErrorAction SilentlyContinue
-} catch {
-  Write-UpdateLog "Process wait skipped or timed out: \$_"
-}
-
-if (-not (Test-Path -LiteralPath \$msiPath)) {
-  Write-UpdateLog "MSI not found: \$msiPath"
-  Show-UpdateError "La mise a jour a echoue: installateur introuvable.`n\$msiPath"
-  exit 2
-}
-
-Write-UpdateLog "Starting msiexec"
-& "\$env:SystemRoot\\System32\\msiexec.exe" /i "\$msiPath" /passive /norestart /l*v "\$logPath"
-\$exitCode = \$LASTEXITCODE
-Write-UpdateLog "msiexec exited with code \$exitCode"
-
-if (\$exitCode -ne 0 -and \$exitCode -ne 1641 -and \$exitCode -ne 3010) {
-  Write-UpdateLog "MSI update failed. See \$logPath"
-  Show-UpdateError "La mise a jour a echoue avec le code \$exitCode.`nLog: \$logPath"
-  exit \$exitCode
-}
-
-Start-Sleep -Seconds 1
-
-\$installDirectories = @(
-  (Join-Path \$env:LOCALAPPDATA 'Programs\\SFAIT Softphone'),
-  (Join-Path \$env:LOCALAPPDATA 'SFAIT Softphone'),
-  (Join-Path \$env:ProgramFiles 'SFAIT Softphone'),
-  (Join-Path \${env:ProgramFiles(x86)} 'SFAIT Softphone')
+if not exist "%MSI_PATH%" (
+  echo [%DATE% %TIME%] MSI not found: %MSI_PATH%>>"%UPDATER_LOG%"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('La mise a jour a echoue: installateur introuvable. Log: %MSI_LOG%', 'SFAIT Softphone') | Out-Null"
+  exit /b 2
 )
-foreach (\$installDirectory in \$installDirectories) {
-  \$exePath = Join-Path \$installDirectory 'sfait_softphone.exe'
-  if (Test-Path -LiteralPath \$exePath) {
-    Write-UpdateLog "Relaunching \$exePath"
-    Start-Process -FilePath \$exePath
-    exit 0
-  }
-}
 
-Write-UpdateLog "No installed executable found to relaunch."
-Show-UpdateError "La mise a jour est terminee, mais SFAIT Softphone n'a pas pu etre relance automatiquement."
+echo [%DATE% %TIME%] Starting msiexec>>"%UPDATER_LOG%"
+"%SystemRoot%\\System32\\msiexec.exe" /i "%MSI_PATH%" /quiet /norestart /l*v "%MSI_LOG%"
+set "EXIT_CODE=%ERRORLEVEL%"
+echo [%DATE% %TIME%] msiexec exited with code %EXIT_CODE%>>"%UPDATER_LOG%"
+
+if "%EXIT_CODE%"=="0" goto relaunch
+if "%EXIT_CODE%"=="1641" goto relaunch
+if "%EXIT_CODE%"=="3010" goto relaunch
+
+echo [%DATE% %TIME%] MSI update failed. See %MSI_LOG%>>"%UPDATER_LOG%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('La mise a jour a echoue avec le code %EXIT_CODE%. Log: %MSI_LOG%', 'SFAIT Softphone') | Out-Null"
+exit /b %EXIT_CODE%
+
+:relaunch
+ping -n 2 127.0.0.1 >nul
+
+set "EXE_PATH=%LOCALAPPDATA%\\Programs\\SFAIT Softphone\\sfait_softphone.exe"
+if exist "%EXE_PATH%" goto start_app
+
+set "EXE_PATH=%LOCALAPPDATA%\\SFAIT Softphone\\sfait_softphone.exe"
+if exist "%EXE_PATH%" goto start_app
+
+set "EXE_PATH=%ProgramFiles%\\SFAIT Softphone\\sfait_softphone.exe"
+if exist "%EXE_PATH%" goto start_app
+
+set "EXE_PATH=%ProgramFiles(x86)%\\SFAIT Softphone\\sfait_softphone.exe"
+if exist "%EXE_PATH%" goto start_app
+
+echo [%DATE% %TIME%] No installed executable found to relaunch.>>"%UPDATER_LOG%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('La mise a jour est terminee, mais SFAIT Softphone n''a pas pu etre relance automatiquement.', 'SFAIT Softphone') | Out-Null"
+exit /b 0
+
+:start_app
+echo [%DATE% %TIME%] Relaunching %EXE_PATH%>>"%UPDATER_LOG%"
+start "" "%EXE_PATH%"
+exit /b 0
 ''';
   }
 
