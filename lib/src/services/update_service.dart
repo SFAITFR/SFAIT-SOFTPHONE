@@ -305,9 +305,8 @@ class UpdateService {
       'cmd.exe',
       [
         '/d',
-        '/s',
         '/c',
-        'start "" /min "${script.path}"',
+        script.path,
       ],
       mode: ProcessStartMode.detached,
     );
