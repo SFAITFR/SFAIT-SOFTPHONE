@@ -1,0 +1,20 @@
+// Application-level settings for the Runner target.
+//
+// This may be replaced with something auto-generated from metadata (e.g., pubspec.yaml) in the
+// future. If not, the values below would default to using the project name when this becomes a
+// 'flutter create' template.
+
+// The application's name. By default this is also the title of the Flutter window.
+PRODUCT_NAME = SFAIT Softphone
+
+// The application's bundle identifier
+PRODUCT_BUNDLE_IDENTIFIER = fr.sfait.sfaitSoftphone
+
+// The copyright displayed in application information
+PRODUCT_COPYRIGHT = Copyright © 2026 fr.sfait. All rights reserved.
+
+SWIFT_OBJC_BRIDGING_HEADER = Runner/Runner-Bridging-Header.h
+GCC_PREPROCESSOR_DEFINITIONS = $(inherited) PJ_AUTOCONF=1 PJ_IS_BIG_ENDIAN=0 PJ_IS_LITTLE_ENDIAN=1
+HEADER_SEARCH_PATHS = $(inherited) "$(PROJECT_DIR)/../vendor/pjproject/pjlib/include" "$(PROJECT_DIR)/../vendor/pjproject/pjlib-util/include" "$(PROJECT_DIR)/../vendor/pjproject/pjnath/include" "$(PROJECT_DIR)/../vendor/pjproject/pjmedia/include" "$(PROJECT_DIR)/../vendor/pjproject/pjsip/include"
+LIBRARY_SEARCH_PATHS = $(inherited) "$(PROJECT_DIR)/../vendor/pjproject/pjsip/lib" "$(PROJECT_DIR)/../vendor/pjproject/pjmedia/lib" "$(PROJECT_DIR)/../vendor/pjproject/pjnath/lib" "$(PROJECT_DIR)/../vendor/pjproject/pjlib-util/lib" "$(PROJECT_DIR)/../vendor/pjproject/pjlib/lib" "$(PROJECT_DIR)/../vendor/pjproject/third_party/lib"
+OTHER_LDFLAGS = $(inherited) -lpjsua2-arm-apple-darwin25.4.0 -lpjsua-arm-apple-darwin25.4.0 -lpjsip-ua-arm-apple-darwin25.4.0 -lpjsip-simple-arm-apple-darwin25.4.0 -lpjsip-arm-apple-darwin25.4.0 -lpjmedia-codec-arm-apple-darwin25.4.0 -lpjmedia-videodev-arm-apple-darwin25.4.0 -lpjmedia-audiodev-arm-apple-darwin25.4.0 -lpjmedia-arm-apple-darwin25.4.0 -lpjsdp-arm-apple-darwin25.4.0 -lpjnath-arm-apple-darwin25.4.0 -lpjlib-util-arm-apple-darwin25.4.0 -lpj-arm-apple-darwin25.4.0 -lsrtp-arm-apple-darwin25.4.0 -lresample-arm-apple-darwin25.4.0 -lgsmcodec-arm-apple-darwin25.4.0 -lspeex-arm-apple-darwin25.4.0 -lilbccodec-arm-apple-darwin25.4.0 -lg7221codec-arm-apple-darwin25.4.0 -lwebrtc-arm-apple-darwin25.4.0 -lc++ -framework CoreAudio -framework CoreServices -framework AudioUnit -framework AudioToolbox -framework Foundation -framework AppKit
