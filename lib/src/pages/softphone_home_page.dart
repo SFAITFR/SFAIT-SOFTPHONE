@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -1237,6 +1238,11 @@ class _SettingsTabState extends State<_SettingsTab> {
   int _sectionIndex = 0;
   late String _pendingCodecId;
 
+  bool get _isWindows => defaultTargetPlatform == TargetPlatform.windows;
+
+  String get _dockIconLabel =>
+      _isWindows ? 'Épinglé à la barre des tâches' : 'Épinglé au Dock';
+
   List<TextEditingController> get _pbxControllers => [
         widget.domainController,
         widget.extensionController,
@@ -1461,15 +1467,16 @@ class _SettingsTabState extends State<_SettingsTab> {
           _MacSettingsGroup(
             title: 'Application',
             children: [
-              _MacSettingsRow(
-                label: 'Barre de menus',
-                child: _MacSwitch(
-                  value: widget.generalSettings.showMenuBarIcon,
-                  onChanged: widget.onMenuBarIconChanged,
+              if (!_isWindows)
+                _MacSettingsRow(
+                  label: 'Barre de menus',
+                  child: _MacSwitch(
+                    value: widget.generalSettings.showMenuBarIcon,
+                    onChanged: widget.onMenuBarIconChanged,
+                  ),
                 ),
-              ),
               _MacSettingsRow(
-                label: 'Dock',
+                label: _dockIconLabel,
                 child: _MacSwitch(
                   value: widget.generalSettings.showDockIcon,
                   onChanged: widget.onDockIconChanged,
