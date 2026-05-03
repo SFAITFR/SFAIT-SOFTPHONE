@@ -286,11 +286,19 @@ class UpdateService {
   }
 
   Future<void> _installWindowsMsiUpdate(File installer) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
     final script = File(
       _joinPath([
         Directory.systemTemp.path,
         'sfait-softphone-updates',
-        'install-msi-${DateTime.now().millisecondsSinceEpoch}.cmd',
+        'install-msi-$timestamp.cmd',
+      ]),
+    );
+    final launcher = File(
+      _joinPath([
+        Directory.systemTemp.path,
+        'sfait-softphone-updates',
+        'launch-msi-$timestamp.vbs',
       ]),
     );
     await script.parent.create(recursive: true);
@@ -300,14 +308,14 @@ class UpdateService {
       ),
       encoding: systemEncoding,
     );
+    await launcher.writeAsString(
+      _windowsHiddenCommandLauncher(script.path),
+      encoding: systemEncoding,
+    );
 
     await Process.start(
-      'cmd.exe',
-      [
-        '/d',
-        '/c',
-        script.path,
-      ],
+      'wscript.exe',
+      [launcher.path],
       mode: ProcessStartMode.detached,
     );
 
@@ -450,6 +458,14 @@ exit /b 0
 echo [%DATE% %TIME%] Relaunching %EXE_PATH%>>"%UPDATER_LOG%"
 start "" "%EXE_PATH%"
 exit /b 0
+''';
+  }
+
+  String _windowsHiddenCommandLauncher(String commandPath) {
+    final escapedPath = commandPath.replaceAll('"', '""');
+    return '''
+Set shell = CreateObject("WScript.Shell")
+shell.Run Chr(34) & "$escapedPath" & Chr(34), 0, False
 ''';
   }
 
