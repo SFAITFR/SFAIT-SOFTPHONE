@@ -189,15 +189,15 @@ class UpdateService {
   ) {
     final arch = Abi.current() == Abi.windowsArm64 ? 'arm64' : 'x64';
     final expectedNames = <String>[
-      _windowsPortableAsset,
-      '$_releaseAssetPrefix-$version-windows-$arch.zip',
-      '$_releaseAssetPrefix-$version-$arch.zip',
       _windowsInstallerAsset,
-      _windowsSetupAsset,
-      '$_releaseAssetPrefix-$version-windows-$arch.msi',
       '$_releaseAssetPrefix-$version-$arch.msi',
-      '$_releaseAssetPrefix-$version-windows-$arch.exe',
+      '$_releaseAssetPrefix-$version-windows-$arch.msi',
+      _windowsSetupAsset,
       '$_releaseAssetPrefix-$version-$arch.exe',
+      '$_releaseAssetPrefix-$version-windows-$arch.exe',
+      _windowsPortableAsset,
+      '$_releaseAssetPrefix-$version-$arch.zip',
+      '$_releaseAssetPrefix-$version-windows-$arch.zip',
     ];
 
     for (final expectedName in expectedNames) {
@@ -209,16 +209,6 @@ class UpdateService {
 
     final versionLower = version.toLowerCase();
     final archLower = arch.toLowerCase();
-    final versionedArchive = _firstAssetWhere(assets, (asset) {
-      final name = (asset['name'] as String? ?? '').toLowerCase();
-      return name.endsWith('.zip') &&
-          name.contains(versionLower) &&
-          name.contains(archLower);
-    });
-    if (versionedArchive != null) {
-      return versionedArchive;
-    }
-
     final versionedInstaller = _firstAssetWhere(assets, (asset) {
       final name = (asset['name'] as String? ?? '').toLowerCase();
       return _isWindowsUpdateAsset(name) &&
@@ -425,11 +415,17 @@ if (-not (Test-Path -LiteralPath \$msiPath)) {
   exit 2
 }
 
-\$quotedMsiPath = '"' + \$msiPath + '"'
-\$quotedLogPath = '"' + \$logPath + '"'
-\$arguments = "/i \$quotedMsiPath /qn /norestart /l*v \$quotedLogPath"
-\$installer = Start-Process -FilePath 'msiexec.exe' -ArgumentList \$arguments -Wait -PassThru
-Write-UpdateLog "msiexec exited with code \$(\$installer.ExitCode)"
+Write-UpdateLog "Starting msiexec"
+& "\$env:SystemRoot\\System32\\msiexec.exe" /i "\$msiPath" /passive /norestart /l*v "\$logPath"
+\$exitCode = \$LASTEXITCODE
+Write-UpdateLog "msiexec exited with code \$exitCode"
+
+if (\$exitCode -ne 0 -and \$exitCode -ne 1641 -and \$exitCode -ne 3010) {
+  Write-UpdateLog "MSI update failed. See \$logPath"
+  exit \$exitCode
+}
+
+Start-Sleep -Seconds 1
 
 \$installDirectories = @(
   (Join-Path \$env:LOCALAPPDATA 'Programs\\SFAIT Softphone'),
