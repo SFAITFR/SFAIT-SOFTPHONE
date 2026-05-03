@@ -95,10 +95,14 @@ class UpdateService {
     }
 
     final updatesDirectory = Directory(
-      '${Directory.systemTemp.path}/sfait-softphone-updates/${update.tagName}',
+      _joinPath([
+        Directory.systemTemp.path,
+        'sfait-softphone-updates',
+        update.tagName,
+      ]),
     );
     await updatesDirectory.create(recursive: true);
-    final target = File('${updatesDirectory.path}/${update.assetName}');
+    final target = File(_joinPath([updatesDirectory.path, update.assetName]));
     if (await target.exists()) {
       await target.delete();
     }
@@ -283,7 +287,11 @@ class UpdateService {
 
   Future<void> _installWindowsMsiUpdate(File installer) async {
     final script = File(
-      '${Directory.systemTemp.path}/sfait-softphone-updates/install-msi-${DateTime.now().millisecondsSinceEpoch}.ps1',
+      _joinPath([
+        Directory.systemTemp.path,
+        'sfait-softphone-updates',
+        'install-msi-${DateTime.now().millisecondsSinceEpoch}.ps1',
+      ]),
     );
     await script.parent.create(recursive: true);
     await script.writeAsString(
@@ -314,7 +322,11 @@ class UpdateService {
   Future<void> _installWindowsZipUpdate(File archive) async {
     final appDirectory = File(Platform.resolvedExecutable).parent;
     final script = File(
-      '${Directory.systemTemp.path}/sfait-softphone-updates/install-${DateTime.now().millisecondsSinceEpoch}.ps1',
+      _joinPath([
+        Directory.systemTemp.path,
+        'sfait-softphone-updates',
+        'install-${DateTime.now().millisecondsSinceEpoch}.ps1',
+      ]),
     );
     await script.parent.create(recursive: true);
     await script.writeAsString(
@@ -403,6 +415,14 @@ function Write-UpdateLog([string]\$message) {
   Add-Content -Path \$updaterLogPath -Value "[\$timestamp] \$message"
 }
 
+function Show-UpdateError([string]\$message) {
+  try {
+    Add-Type -AssemblyName PresentationFramework
+    [System.Windows.MessageBox]::Show(\$message, 'SFAIT Softphone') | Out-Null
+  } catch {
+  }
+}
+
 try {
   Write-UpdateLog "MSI update runner started for \$msiPath"
   Wait-Process -Id \$processId -Timeout 8 -ErrorAction SilentlyContinue
@@ -412,6 +432,7 @@ try {
 
 if (-not (Test-Path -LiteralPath \$msiPath)) {
   Write-UpdateLog "MSI not found: \$msiPath"
+  Show-UpdateError "La mise a jour a echoue: installateur introuvable.`n\$msiPath"
   exit 2
 }
 
@@ -422,6 +443,7 @@ Write-UpdateLog "msiexec exited with code \$exitCode"
 
 if (\$exitCode -ne 0 -and \$exitCode -ne 1641 -and \$exitCode -ne 3010) {
   Write-UpdateLog "MSI update failed. See \$logPath"
+  Show-UpdateError "La mise a jour a echoue avec le code \$exitCode.`nLog: \$logPath"
   exit \$exitCode
 }
 
@@ -443,7 +465,25 @@ foreach (\$installDirectory in \$installDirectories) {
 }
 
 Write-UpdateLog "No installed executable found to relaunch."
+Show-UpdateError "La mise a jour est terminee, mais SFAIT Softphone n'a pas pu etre relance automatiquement."
 ''';
+  }
+
+  String _joinPath(List<String> parts) {
+    if (parts.isEmpty) {
+      return '';
+    }
+
+    var path = parts.first;
+    for (final part in parts.skip(1)) {
+      final trimmed = part.replaceAll(RegExp(r'^[\\/]+'), '');
+      if (path.endsWith(Platform.pathSeparator)) {
+        path = '$path$trimmed';
+      } else {
+        path = '$path${Platform.pathSeparator}$trimmed';
+      }
+    }
+    return path;
   }
 
   String _powerShellSingleQuoted(String value) {
