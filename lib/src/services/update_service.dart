@@ -13,7 +13,7 @@ typedef UpdateProgressCallback = void Function(int downloaded, int? total);
 class UpdateService {
   static const currentVersion = String.fromEnvironment(
     'SFAIT_APP_VERSION',
-    defaultValue: '1.0.1',
+    defaultValue: '1.0.0',
   );
   static const _repository = 'SFAITFR/SFAIT-SOFTPHONE';
   static const _releaseAssetPrefix = 'sfait-softphone';

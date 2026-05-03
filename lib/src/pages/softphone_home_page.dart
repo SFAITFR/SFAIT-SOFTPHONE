@@ -1240,9 +1240,6 @@ class _SettingsTabState extends State<_SettingsTab> {
 
   bool get _isWindows => defaultTargetPlatform == TargetPlatform.windows;
 
-  String get _dockIconLabel =>
-      _isWindows ? 'Épinglé à la barre des tâches' : 'Épinglé au Dock';
-
   List<TextEditingController> get _pbxControllers => [
         widget.domainController,
         widget.extensionController,
@@ -1475,13 +1472,14 @@ class _SettingsTabState extends State<_SettingsTab> {
                     onChanged: widget.onMenuBarIconChanged,
                   ),
                 ),
-              _MacSettingsRow(
-                label: _dockIconLabel,
-                child: _MacSwitch(
-                  value: widget.generalSettings.showDockIcon,
-                  onChanged: widget.onDockIconChanged,
+              if (!_isWindows)
+                _MacSettingsRow(
+                  label: 'Épinglé au Dock',
+                  child: _MacSwitch(
+                    value: widget.generalSettings.showDockIcon,
+                    onChanged: widget.onDockIconChanged,
+                  ),
                 ),
-              ),
               _MacSettingsRow(
                 label: 'Au démarrage',
                 child: _MacSwitch(

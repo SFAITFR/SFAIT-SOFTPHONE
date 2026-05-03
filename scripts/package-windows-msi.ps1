@@ -127,6 +127,7 @@ $msiPath = Join-Path $distDir "SFAIT_Softphone_installer.msi"
 $shaPath = "$msiPath.sha256"
 $wixWorkDir = Join-Path $repoRoot "build\windows-msi"
 $wxsPath = Join-Path $wixWorkDir "SFAITSoftphone.wxs"
+$pinScriptPath = Join-Path $wixWorkDir "pin-taskbar.ps1"
 $objPath = Join-Path $wixWorkDir "SFAITSoftphone.wixobj"
 $msiVersion = Convert-ToMsiVersion $Version
 $upgradeCode = "{9B8DAA43-9791-4907-9B4E-274827778291}"
@@ -189,11 +190,61 @@ $iconPath = Get-XmlEscaped (Join-Path $repoRoot "windows\runner\resources\app_ic
 $directoryXml = $directories -join [Environment]::NewLine
 $componentXml = $components -join [Environment]::NewLine
 $componentRefXml = $componentRefs -join [Environment]::NewLine
+$pinScriptSource = Get-XmlEscaped $pinScriptPath
+
+$pinTaskbarScript = @'
+param([string]$ShortcutPath)
+
+$ErrorActionPreference = "SilentlyContinue"
+
+function Normalize-Verb {
+    param([string]$Name)
+
+    $clean = $Name -replace "&", ""
+    $normalized = $clean.Normalize([Text.NormalizationForm]::FormD)
+    $chars = foreach ($char in $normalized.ToCharArray()) {
+        if ([Globalization.CharUnicodeInfo]::GetUnicodeCategory($char) -ne [Globalization.UnicodeCategory]::NonSpacingMark) {
+            $char
+        }
+    }
+    return (-join $chars).ToLowerInvariant()
+}
+
+if (-not (Test-Path -LiteralPath $ShortcutPath)) {
+    exit 0
+}
+
+$shell = New-Object -ComObject Shell.Application
+$folderPath = Split-Path -LiteralPath $ShortcutPath -Parent
+$itemName = Split-Path -LiteralPath $ShortcutPath -Leaf
+$folder = $shell.Namespace($folderPath)
+if ($null -eq $folder) {
+    exit 0
+}
+
+$item = $folder.ParseName($itemName)
+if ($null -eq $item) {
+    exit 0
+}
+
+foreach ($verb in @($item.Verbs())) {
+    $name = Normalize-Verb $verb.Name
+    if ($name -match "(pin.*taskbar|epingler.*barre)") {
+        $verb.DoIt()
+        Start-Sleep -Milliseconds 500
+        break
+    }
+}
+
+exit 0
+'@
+
+Set-Content -Path $pinScriptPath -Value $pinTaskbarScript -Encoding UTF8
 
 $wxs = @"
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="SFAIT Softphone" Manufacturer="SFAIT" Version="$msiVersion" UpgradeCode="$upgradeCode" Scope="perUser">
-    <MajorUpgrade DowngradeErrorMessage="Une version plus recente de SFAIT Softphone est deja installee." />
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="Une version plus recente de SFAIT Softphone est deja installee." />
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="AppIcon.ico" SourceFile="$iconPath" />
 
@@ -205,10 +256,26 @@ $wxs = @"
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="ApplicationProgramsFolder" Name="SFAIT Softphone" />
     </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
+    <StandardDirectory Id="AppDataFolder">
+      <Directory Id="MicrosoftAppDataFolder" Name="Microsoft">
+        <Directory Id="InternetExplorerFolder" Name="Internet Explorer">
+          <Directory Id="QuickLaunchFolder" Name="Quick Launch">
+            <Directory Id="UserPinnedFolder" Name="User Pinned">
+              <Directory Id="TaskBarFolder" Name="TaskBar" />
+            </Directory>
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
 
 $directoryXml
 
 $componentXml
+
+    <Component Id="TaskbarPinScriptComponent" Directory="INSTALLFOLDER" Guid="{DFD6322C-2F4F-4B96-8624-B8974E02419E}">
+      <File Id="TaskbarPinScriptFile" Source="$pinScriptSource" Name="pin-taskbar.ps1" KeyPath="yes" />
+    </Component>
 
     <Component Id="ApplicationShortcutComponent" Directory="ApplicationProgramsFolder" Guid="{6C9C2D9C-82D7-49B4-892C-C59D2BE63734}">
       <Shortcut Id="ApplicationStartMenuShortcut" Name="SFAIT Softphone" Target="[INSTALLFOLDER]sfait_softphone.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon.ico" />
@@ -216,9 +283,28 @@ $componentXml
       <RegistryValue Root="HKCU" Key="Software\SFAIT\SFAIT Softphone" Name="installed" Type="integer" Value="1" KeyPath="yes" />
     </Component>
 
+    <Component Id="ApplicationDesktopShortcutComponent" Directory="DesktopFolder" Guid="{0B4B2E84-1381-4C32-A76E-13F38EE7C9A5}">
+      <Shortcut Id="ApplicationDesktopShortcut" Name="SFAIT Softphone" Target="[INSTALLFOLDER]sfait_softphone.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon.ico" />
+      <RegistryValue Root="HKCU" Key="Software\SFAIT\SFAIT Softphone" Name="desktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="ApplicationTaskbarShortcutComponent" Directory="TaskBarFolder" Guid="{C2AA98D9-652C-4C81-A737-46EB55AA9BC7}">
+      <Shortcut Id="ApplicationTaskbarShortcut" Name="SFAIT Softphone" Target="[INSTALLFOLDER]sfait_softphone.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon.ico" />
+      <RegistryValue Root="HKCU" Key="Software\SFAIT\SFAIT Softphone" Name="taskbarShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <CustomAction Id="PinApplicationToTaskbar" Directory="INSTALLFOLDER" Execute="immediate" Return="ignore" ExeCommand="&quot;[SystemFolder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;[INSTALLFOLDER]pin-taskbar.ps1&quot; &quot;[ApplicationProgramsFolder]SFAIT Softphone.lnk&quot;" />
+
+    <InstallExecuteSequence>
+      <Custom Action="PinApplicationToTaskbar" After="CreateShortcuts" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
+
     <Feature Id="MainFeature" Title="SFAIT Softphone" Level="1">
 $componentRefXml
+      <ComponentRef Id="TaskbarPinScriptComponent" />
       <ComponentRef Id="ApplicationShortcutComponent" />
+      <ComponentRef Id="ApplicationDesktopShortcutComponent" />
+      <ComponentRef Id="ApplicationTaskbarShortcutComponent" />
     </Feature>
   </Package>
 </Wix>
