@@ -5,6 +5,15 @@ import FlutterMacOS
 class AppDelegate: FlutterAppDelegate {
   static var menuBarModeIsEnabled = false
 
+  override func applicationDidFinishLaunching(_ notification: Notification) {
+    super.applicationDidFinishLaunching(notification)
+
+    if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+       let icon = NSImage(contentsOf: iconURL) {
+      NSApplication.shared.applicationIconImage = icon
+    }
+  }
+
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return !Self.menuBarModeIsEnabled
   }
