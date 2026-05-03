@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/audio_device_option.dart';
+import '../models/app_update.dart';
 import '../models/call_log_entry.dart';
 import '../models/codec_option.dart';
 import '../models/general_settings.dart';
@@ -14,6 +15,7 @@ import '../services/preferences_service.dart';
 import '../services/ringtone_service.dart';
 import '../services/softphone_service.dart';
 import '../services/system_settings_service.dart';
+import '../services/update_service.dart';
 
 class SoftphoneController extends ChangeNotifier {
   SoftphoneController(
@@ -22,11 +24,13 @@ class SoftphoneController extends ChangeNotifier {
     DtmfToneService? toneService,
     RingtoneService? ringtoneService,
     SystemSettingsService? systemSettingsService,
+    UpdateService? updateService,
   })  : _service = service ?? SoftphoneService(),
         _toneService = toneService ?? DtmfToneService(),
         _ringtoneService = ringtoneService ?? RingtoneService(),
         _systemSettingsService =
-            systemSettingsService ?? SystemSettingsService() {
+            systemSettingsService ?? SystemSettingsService(),
+        _updateService = updateService ?? UpdateService() {
     _serviceEventsSubscription = _service.events.listen(_handleServiceEvent);
   }
 
@@ -35,6 +39,7 @@ class SoftphoneController extends ChangeNotifier {
   final DtmfToneService _toneService;
   final RingtoneService _ringtoneService;
   final SystemSettingsService _systemSettingsService;
+  final UpdateService _updateService;
   late final StreamSubscription<SoftphoneServiceEvent>
       _serviceEventsSubscription;
 
@@ -49,6 +54,8 @@ class SoftphoneController extends ChangeNotifier {
   bool _isOnHold = false;
   int _requestVersion = 0;
   Timer? _settingsStatusClearTimer;
+  Timer? _startupUpdateCheckTimer;
+  Timer? _updateCheckTimer;
   GeneralSettings _generalSettings = GeneralSettings.defaults;
   List<AudioDeviceOption> _audioInputs = const <AudioDeviceOption>[];
   List<AudioDeviceOption> _audioOutputs = const <AudioDeviceOption>[];
@@ -56,6 +63,11 @@ class SoftphoneController extends ChangeNotifier {
   List<CodecOption> _audioCodecs = const <CodecOption>[];
   List<PrivacyPermissionStatus> _privacyPermissions =
       const <PrivacyPermissionStatus>[];
+  AppUpdateInfo? _availableUpdate;
+  bool _isCheckingForUpdate = false;
+  bool _isInstallingUpdate = false;
+  double? _updateDownloadProgress;
+  String _updateStatusMessage = '';
 
   SipAccount get account => _account;
   SoftphoneConnectionStatus get status => _status;
@@ -74,6 +86,11 @@ class SoftphoneController extends ChangeNotifier {
   List<CodecOption> get audioCodecs => List.unmodifiable(_audioCodecs);
   List<PrivacyPermissionStatus> get privacyPermissions =>
       List.unmodifiable(_privacyPermissions);
+  AppUpdateInfo? get availableUpdate => _availableUpdate;
+  bool get isCheckingForUpdate => _isCheckingForUpdate;
+  bool get isInstallingUpdate => _isInstallingUpdate;
+  double? get updateDownloadProgress => _updateDownloadProgress;
+  String get updateStatusMessage => _updateStatusMessage;
   ThemeMode get themeMode => _generalSettings.themeMode;
 
   bool get canConnect =>
@@ -110,6 +127,7 @@ class SoftphoneController extends ChangeNotifier {
     }
 
     unawaited(_initializeGeneralSettings());
+    _startUpdateChecks();
   }
 
   Future<void> saveAccount(SipAccount account) async {
@@ -328,11 +346,84 @@ class SoftphoneController extends ChangeNotifier {
   @override
   void dispose() {
     _settingsStatusClearTimer?.cancel();
+    _startupUpdateCheckTimer?.cancel();
+    _updateCheckTimer?.cancel();
     unawaited(_ringtoneService.stop());
     unawaited(_toneService.dispose());
     unawaited(_service.dispose());
     _serviceEventsSubscription.cancel();
     super.dispose();
+  }
+
+  Future<void> checkForUpdates({bool showNoUpdateMessage = false}) async {
+    if (_isCheckingForUpdate || _isInstallingUpdate) {
+      return;
+    }
+
+    _isCheckingForUpdate = true;
+    if (showNoUpdateMessage) {
+      _updateStatusMessage = 'Vérification des mises à jour...';
+    }
+    notifyListeners();
+
+    try {
+      final update = await _updateService.checkForUpdate();
+      _availableUpdate = update;
+      if (update == null && showNoUpdateMessage) {
+        _updateStatusMessage = 'SFAIT Softphone est à jour.';
+      } else if (update != null) {
+        _updateStatusMessage = 'Mise à jour ${update.version} disponible.';
+      }
+    } catch (error) {
+      if (showNoUpdateMessage) {
+        _updateStatusMessage = _formatError(error);
+      }
+    } finally {
+      _isCheckingForUpdate = false;
+      notifyListeners();
+    }
+  }
+
+  void dismissAvailableUpdate() {
+    _availableUpdate = null;
+    _updateStatusMessage = '';
+    notifyListeners();
+  }
+
+  Future<void> installAvailableUpdate() async {
+    final update = _availableUpdate;
+    if (update == null || _isInstallingUpdate) {
+      return;
+    }
+
+    _isInstallingUpdate = true;
+    _updateDownloadProgress = 0;
+    _updateStatusMessage = 'Téléchargement de la version ${update.version}...';
+    notifyListeners();
+
+    try {
+      final installer = await _updateService.downloadUpdate(
+        update,
+        onProgress: (downloaded, total) {
+          if (total != null && total > 0) {
+            _updateDownloadProgress = downloaded / total;
+          } else {
+            _updateDownloadProgress = null;
+          }
+          notifyListeners();
+        },
+      );
+
+      _updateStatusMessage = 'Installation de la mise à jour...';
+      _updateDownloadProgress = null;
+      notifyListeners();
+      await _updateService.installUpdate(installer);
+    } catch (error) {
+      _isInstallingUpdate = false;
+      _updateDownloadProgress = null;
+      _updateStatusMessage = _formatError(error);
+      notifyListeners();
+    }
   }
 
   void _handleServiceEvent(SoftphoneServiceEvent event) {
@@ -723,5 +814,22 @@ class SoftphoneController extends ChangeNotifier {
     } catch (_) {
       // Best effort on macOS presentation integration.
     }
+  }
+
+  void _startUpdateChecks() {
+    if (!_updateService.isSupported) {
+      return;
+    }
+
+    _startupUpdateCheckTimer?.cancel();
+    _startupUpdateCheckTimer = Timer(const Duration(seconds: 6), () {
+      unawaited(checkForUpdates());
+    });
+    _updateCheckTimer?.cancel();
+    _updateCheckTimer = Timer.periodic(const Duration(hours: 1), (_) {
+      if (!ringing && !calling && !inCall) {
+        unawaited(checkForUpdates());
+      }
+    });
   }
 }

@@ -8,6 +8,7 @@ class MainFlutterWindow: NSWindow {
   private let launchAtStartupChannelName = "sfait/launch_at_startup"
   private let systemSettingsChannelName = "sfait/system_settings"
   private let ringtoneChannelName = "sfait/ringtone"
+  private let updaterChannelName = "sfait/updater"
   private var ringtoneSound: NSSound?
   private var showMenuBarIcon = false
   private var showDockIcon = true
@@ -35,6 +36,7 @@ class MainFlutterWindow: NSWindow {
     configureLaunchAtStartupChannel(flutterViewController)
     configureSystemSettingsChannel(flutterViewController)
     configureRingtoneChannel(flutterViewController)
+    configureUpdaterChannel(flutterViewController)
     SfaitPjsipBridge.shared().configure(
       with: flutterViewController.engine.binaryMessenger
     )
@@ -188,6 +190,53 @@ class MainFlutterWindow: NSWindow {
         result(nil)
       case "importRingtone":
         self.importRingtone(result: result)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private func configureUpdaterChannel(_ flutterViewController: FlutterViewController) {
+    FlutterMethodChannel(
+      name: updaterChannelName,
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    ).setMethodCallHandler { call, result in
+      switch call.method {
+      case "installUpdateFromDmg":
+        guard
+          let arguments = call.arguments as? [String: Any],
+          let dmgPath = arguments["dmgPath"] as? String,
+          !dmgPath.isEmpty
+        else {
+          result(
+            FlutterError(
+              code: "invalid_args",
+              message: "dmgPath manquant",
+              details: nil
+            )
+          )
+          return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+          do {
+            try Self.installUpdateFromDmg(at: dmgPath)
+            DispatchQueue.main.async {
+              result(nil)
+              NSApp.terminate(nil)
+            }
+          } catch {
+            DispatchQueue.main.async {
+              result(
+                FlutterError(
+                  code: "update_failed",
+                  message: error.localizedDescription,
+                  details: nil
+                )
+              )
+            }
+          }
+        }
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -688,6 +737,166 @@ class MainFlutterWindow: NSWindow {
     } catch {
       // Best effort; persistence is handled by the plist file itself.
     }
+  }
+
+  private static func installUpdateFromDmg(at dmgPath: String) throws {
+    let fileManager = FileManager.default
+    let uniqueId = UUID().uuidString
+    let mountPoint = URL(fileURLWithPath: NSTemporaryDirectory())
+      .appendingPathComponent("sfait-softphone-update-\(uniqueId)")
+    let stagingDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+      .appendingPathComponent("sfait-softphone-staged-\(uniqueId)")
+
+    try fileManager.createDirectory(
+      at: mountPoint,
+      withIntermediateDirectories: true
+    )
+    defer {
+      try? fileManager.removeItem(at: mountPoint)
+      try? fileManager.removeItem(at: stagingDirectory)
+    }
+
+    try runProcess(
+      executablePath: "/usr/bin/hdiutil",
+      arguments: [
+        "attach",
+        "-nobrowse",
+        "-mountpoint",
+        mountPoint.path,
+        dmgPath
+      ]
+    )
+    defer {
+      try? runProcess(
+        executablePath: "/usr/bin/hdiutil",
+        arguments: ["detach", mountPoint.path, "-force"]
+      )
+    }
+
+    let sourceApp = try findAppBundle(in: mountPoint)
+    try fileManager.createDirectory(
+      at: stagingDirectory,
+      withIntermediateDirectories: true
+    )
+    let stagedApp = stagingDirectory.appendingPathComponent("SFAIT Softphone.app")
+    try runProcess(
+      executablePath: "/usr/bin/ditto",
+      arguments: [sourceApp.path, stagedApp.path]
+    )
+
+    try installStagedApp(stagedApp)
+  }
+
+  private static func findAppBundle(in directory: URL) throws -> URL {
+    let expected = directory.appendingPathComponent("SFAIT Softphone.app")
+    if FileManager.default.fileExists(atPath: expected.path) {
+      return expected
+    }
+
+    let contents = try FileManager.default.contentsOfDirectory(
+      at: directory,
+      includingPropertiesForKeys: nil
+    )
+    if let app = contents.first(where: { $0.pathExtension == "app" }) {
+      return app
+    }
+
+    throw NSError(
+      domain: "SFAITSoftphoneUpdater",
+      code: 2,
+      userInfo: [
+        NSLocalizedDescriptionKey: "Aucune application trouvée dans le DMG."
+      ]
+    )
+  }
+
+  private static func installStagedApp(_ stagedApp: URL) throws {
+    let appName = Bundle.main.object(
+      forInfoDictionaryKey: "CFBundleName"
+    ) as? String ?? "SFAIT Softphone"
+    let currentPid = ProcessInfo.processInfo.processIdentifier
+    let currentBundle = Bundle.main.bundleURL
+    let targetApp: URL
+    if currentBundle.path.hasPrefix("/Applications/") {
+      targetApp = currentBundle
+    } else {
+      targetApp = URL(fileURLWithPath: "/Applications/\(appName).app")
+    }
+
+    let command = """
+set -e
+test -d \(shellQuote(stagedApp.path))
+pids=$(pgrep -x \(shellQuote(appName)) | grep -vx \(currentPid) || true)
+if [ -n "$pids" ]; then echo "$pids" | xargs kill -TERM || true; sleep 0.8; fi
+rm -rf \(shellQuote(targetApp.path))
+ditto \(shellQuote(stagedApp.path)) \(shellQuote(targetApp.path))
+xattr -r -d com.apple.quarantine \(shellQuote(targetApp.path)) >/dev/null 2>&1 || true
+open -n \(shellQuote(targetApp.path))
+"""
+
+    do {
+      try runShell(command)
+    } catch {
+      try runShellWithAdministratorPrivileges(
+        command,
+        prompt: "\(appName) veut installer une mise à jour."
+      )
+    }
+  }
+
+  private static func runShell(_ command: String) throws {
+    try runProcess(
+      executablePath: "/bin/zsh",
+      arguments: ["-lc", command]
+    )
+  }
+
+  private static func runShellWithAdministratorPrivileges(
+    _ command: String,
+    prompt: String
+  ) throws {
+    let script = """
+on run {shell_command, prompt_text}
+  do shell script shell_command with prompt prompt_text with administrator privileges
+end run
+"""
+    try runProcess(
+      executablePath: "/usr/bin/osascript",
+      arguments: ["-e", script, command, prompt]
+    )
+  }
+
+  private static func runProcess(
+    executablePath: String,
+    arguments: [String]
+  ) throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executablePath)
+    process.arguments = arguments
+
+    let errorPipe = Pipe()
+    process.standardError = errorPipe
+    try process.run()
+    process.waitUntilExit()
+
+    if process.terminationStatus != 0 {
+      let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+      let errorMessage = String(data: errorData, encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      throw NSError(
+        domain: "SFAITSoftphoneUpdater",
+        code: Int(process.terminationStatus),
+        userInfo: [
+          NSLocalizedDescriptionKey: errorMessage?.isEmpty == false
+            ? errorMessage!
+            : "La commande de mise à jour a échoué."
+        ]
+      )
+    }
+  }
+
+  private static func shellQuote(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
   }
 }
 

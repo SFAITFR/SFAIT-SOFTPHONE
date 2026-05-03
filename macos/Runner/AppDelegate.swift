@@ -8,6 +8,10 @@ class AppDelegate: FlutterAppDelegate {
   override func applicationDidFinishLaunching(_ notification: Notification) {
     super.applicationDidFinishLaunching(notification)
 
+    configureDockIcon()
+  }
+
+  private func configureDockIcon() {
     if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
        let icon = NSImage(contentsOf: iconURL) {
       NSApplication.shared.applicationIconImage = icon

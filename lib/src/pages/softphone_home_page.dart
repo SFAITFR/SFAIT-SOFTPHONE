@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/app_update.dart';
 import '../models/audio_device_option.dart';
 import '../models/call_log_entry.dart';
 import '../models/codec_option.dart';
@@ -33,6 +35,7 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
 
   int _tabIndex = 0;
   bool _showTransferPanel = false;
+  String? _promptedUpdateTag;
 
   @override
   void initState() {
@@ -65,6 +68,7 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
     return Consumer<SoftphoneController>(
       builder: (context, controller, _) {
         _hydrateFields(controller.account, controller.destination);
+        _scheduleUpdatePrompt(controller);
         final showCallOverlay = controller.ringing;
         if (!controller.inCall && _showTransferPanel) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -245,6 +249,13 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
                       onSubmitTransfer: () => _submitTransfer(controller),
                     ),
                   ),
+                if (controller.isInstallingUpdate)
+                  Positioned.fill(
+                    child: _UpdateInstallOverlay(
+                      message: controller.updateStatusMessage,
+                      progress: controller.updateDownloadProgress,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -252,6 +263,78 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
             currentIndex: _tabIndex,
             onSelected: (index) => setState(() => _tabIndex = index),
           ),
+        );
+      },
+    );
+  }
+
+  void _scheduleUpdatePrompt(SoftphoneController controller) {
+    final update = controller.availableUpdate;
+    if (update == null ||
+        controller.isInstallingUpdate ||
+        _promptedUpdateTag == update.tagName) {
+      return;
+    }
+
+    _promptedUpdateTag = update.tagName;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || controller.availableUpdate?.tagName != update.tagName) {
+        return;
+      }
+      _showUpdateDialog(controller, update);
+    });
+  }
+
+  Future<void> _showUpdateDialog(
+    SoftphoneController controller,
+    AppUpdateInfo update,
+  ) async {
+    final notes = update.releaseNotes.trim();
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: Text('Mise à jour ${update.version} disponible'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'SFAIT Softphone peut télécharger et installer cette version automatiquement.',
+                style: theme.textTheme.bodyMedium,
+              ),
+              if (notes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 150),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      notes,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                controller.dismissAvailableUpdate();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Plus tard'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                unawaited(controller.installAvailableUpdate());
+              },
+              child: const Text('Mettre à jour'),
+            ),
+          ],
         );
       },
     );
@@ -843,6 +926,63 @@ class _CallOverlay extends StatelessWidget {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _UpdateInstallOverlay extends StatelessWidget {
+  const _UpdateInstallOverlay({
+    required this.message,
+    required this.progress,
+  });
+
+  final String message;
+  final double? progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.55),
+      ),
+      child: Center(
+        child: Card(
+          margin: const EdgeInsets.all(24),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.system_update_alt,
+                  color: scheme.primary,
+                  size: 34,
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  message.isEmpty ? 'Mise à jour en cours...' : message,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                LinearProgressIndicator(value: progress),
+                const SizedBox(height: 10),
+                Text(
+                  progress == null
+                      ? 'Préparation de l’installation automatique.'
+                      : '${(progress!.clamp(0.0, 1.0) * 100).round()} %',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

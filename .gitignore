@@ -11,6 +11,7 @@ Thumbs.db
 .pub/
 build/
 coverage/
+dist/
 
 # Logs
 *.log
