@@ -189,15 +189,15 @@ class UpdateService {
   ) {
     final arch = Abi.current() == Abi.windowsArm64 ? 'arm64' : 'x64';
     final expectedNames = <String>[
+      _windowsPortableAsset,
+      '$_releaseAssetPrefix-$version-windows-$arch.zip',
+      '$_releaseAssetPrefix-$version-$arch.zip',
       _windowsInstallerAsset,
       _windowsSetupAsset,
-      _windowsPortableAsset,
       '$_releaseAssetPrefix-$version-windows-$arch.msi',
       '$_releaseAssetPrefix-$version-$arch.msi',
       '$_releaseAssetPrefix-$version-windows-$arch.exe',
       '$_releaseAssetPrefix-$version-$arch.exe',
-      '$_releaseAssetPrefix-$version-windows-$arch.zip',
-      '$_releaseAssetPrefix-$version-$arch.zip',
     ];
 
     for (final expectedName in expectedNames) {
@@ -209,6 +209,16 @@ class UpdateService {
 
     final versionLower = version.toLowerCase();
     final archLower = arch.toLowerCase();
+    final versionedArchive = _firstAssetWhere(assets, (asset) {
+      final name = (asset['name'] as String? ?? '').toLowerCase();
+      return name.endsWith('.zip') &&
+          name.contains(versionLower) &&
+          name.contains(archLower);
+    });
+    if (versionedArchive != null) {
+      return versionedArchive;
+    }
+
     final versionedInstaller = _firstAssetWhere(assets, (asset) {
       final name = (asset['name'] as String? ?? '').toLowerCase();
       return _isWindowsUpdateAsset(name) &&
@@ -357,7 +367,7 @@ class UpdateService {
 \$processId = $processId
 
 try {
-  Wait-Process -Id \$processId -Timeout 45 -ErrorAction SilentlyContinue
+  Wait-Process -Id \$processId -Timeout 8 -ErrorAction SilentlyContinue
 } catch {
 }
 
@@ -396,29 +406,47 @@ if (Test-Path \$exePath) {
 \$msiPath = $quotedMsi
 \$processId = $processId
 \$logPath = Join-Path ([System.IO.Path]::GetTempPath()) 'sfait-softphone-msi-update.log'
+\$updaterLogPath = Join-Path ([System.IO.Path]::GetTempPath()) 'sfait-softphone-updater.log'
+
+function Write-UpdateLog([string]\$message) {
+  \$timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+  Add-Content -Path \$updaterLogPath -Value "[\$timestamp] \$message"
+}
 
 try {
-  Wait-Process -Id \$processId -Timeout 45 -ErrorAction SilentlyContinue
+  Write-UpdateLog "MSI update runner started for \$msiPath"
+  Wait-Process -Id \$processId -Timeout 8 -ErrorAction SilentlyContinue
 } catch {
+  Write-UpdateLog "Process wait skipped or timed out: \$_"
+}
+
+if (-not (Test-Path -LiteralPath \$msiPath)) {
+  Write-UpdateLog "MSI not found: \$msiPath"
+  exit 2
 }
 
 \$quotedMsiPath = '"' + \$msiPath + '"'
 \$quotedLogPath = '"' + \$logPath + '"'
 \$arguments = "/i \$quotedMsiPath /qn /norestart /l*v \$quotedLogPath"
 \$installer = Start-Process -FilePath 'msiexec.exe' -ArgumentList \$arguments -Wait -PassThru
+Write-UpdateLog "msiexec exited with code \$(\$installer.ExitCode)"
 
-if (\$installer.ExitCode -ne 0 -and \$installer.ExitCode -ne 1641 -and \$installer.ExitCode -ne 3010) {
-  \$interactiveArguments = "/i \$quotedMsiPath /l*v \$quotedLogPath"
-  \$installer = Start-Process -FilePath 'msiexec.exe' -ArgumentList \$interactiveArguments -Wait -PassThru
-}
-
-if (\$installer.ExitCode -eq 0 -or \$installer.ExitCode -eq 1641 -or \$installer.ExitCode -eq 3010) {
-  \$installDirectory = Join-Path \$env:LOCALAPPDATA 'Programs\\SFAIT Softphone'
+\$installDirectories = @(
+  (Join-Path \$env:LOCALAPPDATA 'Programs\\SFAIT Softphone'),
+  (Join-Path \$env:LOCALAPPDATA 'SFAIT Softphone'),
+  (Join-Path \$env:ProgramFiles 'SFAIT Softphone'),
+  (Join-Path \${env:ProgramFiles(x86)} 'SFAIT Softphone')
+)
+foreach (\$installDirectory in \$installDirectories) {
   \$exePath = Join-Path \$installDirectory 'sfait_softphone.exe'
   if (Test-Path -LiteralPath \$exePath) {
+    Write-UpdateLog "Relaunching \$exePath"
     Start-Process -FilePath \$exePath
+    exit 0
   }
 }
+
+Write-UpdateLog "No installed executable found to relaunch."
 ''';
   }
 
