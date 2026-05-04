@@ -91,6 +91,8 @@ class SoftphoneController extends ChangeNotifier {
   bool get isInstallingUpdate => _isInstallingUpdate;
   double? get updateDownloadProgress => _updateDownloadProgress;
   String get updateStatusMessage => _updateStatusMessage;
+  String get appVersion => UpdateService.currentVersion;
+  bool get updatesSupported => _updateService.isSupported;
   ThemeMode get themeMode => _generalSettings.themeMode;
 
   bool get canConnect =>
@@ -357,6 +359,15 @@ class SoftphoneController extends ChangeNotifier {
 
   Future<void> checkForUpdates({bool showNoUpdateMessage = false}) async {
     if (_isCheckingForUpdate || _isInstallingUpdate) {
+      return;
+    }
+
+    if (!_updateService.isSupported) {
+      if (showNoUpdateMessage) {
+        _updateStatusMessage =
+            'Les mises à jour automatiques sont disponibles sur macOS et Windows.';
+        notifyListeners();
+      }
       return;
     }
 
@@ -823,7 +834,7 @@ class SoftphoneController extends ChangeNotifier {
 
     _startupUpdateCheckTimer?.cancel();
     _startupUpdateCheckTimer = Timer(const Duration(seconds: 6), () {
-      unawaited(checkForUpdates());
+      unawaited(checkForUpdates(showNoUpdateMessage: true));
     });
     _updateCheckTimer?.cancel();
     _updateCheckTimer = Timer.periodic(const Duration(hours: 1), (_) {

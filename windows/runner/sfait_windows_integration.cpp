@@ -39,6 +39,7 @@ HWND g_window = nullptr;
 std::unique_ptr<MethodChannel<EncodableValue>> g_launch_channel;
 std::unique_ptr<MethodChannel<EncodableValue>> g_system_channel;
 std::unique_ptr<MethodChannel<EncodableValue>> g_ringtone_channel;
+std::unique_ptr<MethodChannel<EncodableValue>> g_updater_channel;
 bool g_tray_visible = false;
 double g_ringtone_volume = 1.0;
 HICON g_tray_icon = nullptr;
@@ -408,6 +409,24 @@ EncodableValue ImportRingtone() {
   });
 }
 
+void InstallUpdateFromInstaller(const std::wstring& installer_path) {
+  if (installer_path.empty() || !std::filesystem::exists(installer_path)) {
+    throw std::runtime_error("Installateur de mise a jour introuvable.");
+  }
+
+  HINSTANCE launched = ShellExecuteW(nullptr, L"open", installer_path.c_str(),
+                                    nullptr, nullptr, SW_SHOWNORMAL);
+  if (reinterpret_cast<intptr_t>(launched) <= 32) {
+    throw std::runtime_error("Impossible de lancer l'installateur Windows.");
+  }
+
+  SetTimer(g_window, 9101, 300,
+           [](HWND hwnd, UINT, UINT_PTR timer_id, DWORD) {
+             KillTimer(hwnd, timer_id);
+             DestroyWindow(hwnd);
+           });
+}
+
 void HandleLaunchMethod(const MethodCall<EncodableValue>& call,
                         std::unique_ptr<MethodResult<EncodableValue>> result) {
   try {
@@ -472,6 +491,21 @@ void HandleRingtoneMethod(const MethodCall<EncodableValue>& call,
   }
 }
 
+void HandleUpdaterMethod(const MethodCall<EncodableValue>& call,
+                         std::unique_ptr<MethodResult<EncodableValue>> result) {
+  try {
+    const EncodableMap arguments = EmptyArgs(call.arguments());
+    if (call.method_name() == "installUpdateFromInstaller") {
+      InstallUpdateFromInstaller(ArgWide(arguments, "installerPath"));
+      result->Success();
+    } else {
+      result->NotImplemented();
+    }
+  } catch (const std::exception& error) {
+    result->Error("update_failed", error.what());
+  }
+}
+
 }  // namespace
 
 void ConfigureWindowsIntegration(flutter::BinaryMessenger* messenger, HWND window) {
@@ -482,9 +516,12 @@ void ConfigureWindowsIntegration(flutter::BinaryMessenger* messenger, HWND windo
       messenger, "sfait/system_settings", &flutter::StandardMethodCodec::GetInstance());
   g_ringtone_channel = std::make_unique<MethodChannel<EncodableValue>>(
       messenger, "sfait/ringtone", &flutter::StandardMethodCodec::GetInstance());
+  g_updater_channel = std::make_unique<MethodChannel<EncodableValue>>(
+      messenger, "sfait/updater", &flutter::StandardMethodCodec::GetInstance());
   g_launch_channel->SetMethodCallHandler(HandleLaunchMethod);
   g_system_channel->SetMethodCallHandler(HandleSystemMethod);
   g_ringtone_channel->SetMethodCallHandler(HandleRingtoneMethod);
+  g_updater_channel->SetMethodCallHandler(HandleUpdaterMethod);
   SetTrayVisible(true);
   PositionWindowBottomRight(MonitorFromWindow(g_window, MONITOR_DEFAULTTONEAREST),
                             false);
@@ -517,6 +554,7 @@ void DestroyWindowsIntegration() {
   g_launch_channel.reset();
   g_system_channel.reset();
   g_ringtone_channel.reset();
+  g_updater_channel.reset();
   g_window = nullptr;
 }
 

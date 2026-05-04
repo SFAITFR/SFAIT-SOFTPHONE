@@ -184,6 +184,19 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
                                       audioCodecs: controller.audioCodecs,
                                       privacyPermissions:
                                           controller.privacyPermissions,
+                                      appVersion: controller.appVersion,
+                                      updatesSupported:
+                                          controller.updatesSupported,
+                                      availableUpdate:
+                                          controller.availableUpdate,
+                                      isCheckingForUpdate:
+                                          controller.isCheckingForUpdate,
+                                      isInstallingUpdate:
+                                          controller.isInstallingUpdate,
+                                      updateStatusMessage:
+                                          controller.updateStatusMessage,
+                                      updateDownloadProgress:
+                                          controller.updateDownloadProgress,
                                       onThemeChanged:
                                           controller.updateThemePreference,
                                       onLaunchAtStartupChanged:
@@ -207,6 +220,8 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
                                       onOpenPrivacyPermissionSettings:
                                           controller
                                               .openPrivacyPermissionSettings,
+                                      onInstallAvailableUpdate:
+                                          controller.installAvailableUpdate,
                                       onSaveAndConnect: (preferredCodecId) =>
                                           controller.saveAndConnect(
                                         _buildAccount(),
@@ -1187,6 +1202,13 @@ class _SettingsTab extends StatefulWidget {
     required this.ringtoneOutputs,
     required this.audioCodecs,
     required this.privacyPermissions,
+    required this.appVersion,
+    required this.updatesSupported,
+    required this.availableUpdate,
+    required this.isCheckingForUpdate,
+    required this.isInstallingUpdate,
+    required this.updateStatusMessage,
+    required this.updateDownloadProgress,
     required this.onThemeChanged,
     required this.onLaunchAtStartupChanged,
     required this.onMenuBarIconChanged,
@@ -1198,6 +1220,7 @@ class _SettingsTab extends StatefulWidget {
     required this.onImportCustomRingtone,
     required this.onRefreshPrivacyPermissions,
     required this.onOpenPrivacyPermissionSettings,
+    required this.onInstallAvailableUpdate,
     required this.onSaveAndConnect,
   });
 
@@ -1215,6 +1238,13 @@ class _SettingsTab extends StatefulWidget {
   final List<AudioDeviceOption> ringtoneOutputs;
   final List<CodecOption> audioCodecs;
   final List<PrivacyPermissionStatus> privacyPermissions;
+  final String appVersion;
+  final bool updatesSupported;
+  final AppUpdateInfo? availableUpdate;
+  final bool isCheckingForUpdate;
+  final bool isInstallingUpdate;
+  final String updateStatusMessage;
+  final double? updateDownloadProgress;
   final Future<void> Function(AppThemePreference preference) onThemeChanged;
   final Future<void> Function(bool enabled) onLaunchAtStartupChanged;
   final Future<void> Function(bool enabled) onMenuBarIconChanged;
@@ -1227,6 +1257,7 @@ class _SettingsTab extends StatefulWidget {
   final Future<void> Function() onRefreshPrivacyPermissions;
   final Future<void> Function(PrivacyPermissionKind kind)
       onOpenPrivacyPermissionSettings;
+  final Future<void> Function() onInstallAvailableUpdate;
   final Future<void> Function(String preferredCodecId) onSaveAndConnect;
 
   @override
@@ -1476,10 +1507,32 @@ class _SettingsTabState extends State<_SettingsTab> {
                 ),
               ),
               _MacSettingsRow(
-                label: 'Au démarrage',
+                label: 'Lancement au démarrage',
                 child: _MacSwitch(
                   value: widget.generalSettings.launchAtStartup,
                   onChanged: widget.onLaunchAtStartupChanged,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _MacSettingsGroup(
+            title: 'Informations',
+            children: [
+              _MacSettingsRow(
+                label: 'Version',
+                child: _MacValuePill(text: widget.appVersion),
+              ),
+              _MacSettingsRow(
+                label: 'Mises à jour',
+                child: _AppUpdateControls(
+                  supported: widget.updatesSupported,
+                  availableUpdate: widget.availableUpdate,
+                  isChecking: widget.isCheckingForUpdate,
+                  isInstalling: widget.isInstallingUpdate,
+                  statusMessage: widget.updateStatusMessage,
+                  downloadProgress: widget.updateDownloadProgress,
+                  onInstall: widget.onInstallAvailableUpdate,
                 ),
               ),
             ],
@@ -1723,6 +1776,120 @@ class _SettingsTabState extends State<_SettingsTab> {
         widget.displayNameController.text.trim() !=
             widget.account.displayName.trim() ||
         selectedCodec.trim() != widget.generalSettings.preferredCodecId.trim();
+  }
+}
+
+class _AppUpdateControls extends StatelessWidget {
+  const _AppUpdateControls({
+    required this.supported,
+    required this.availableUpdate,
+    required this.isChecking,
+    required this.isInstalling,
+    required this.statusMessage,
+    required this.downloadProgress,
+    required this.onInstall,
+  });
+
+  final bool supported;
+  final AppUpdateInfo? availableUpdate;
+  final bool isChecking;
+  final bool isInstalling;
+  final String statusMessage;
+  final double? downloadProgress;
+  final Future<void> Function() onInstall;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final update = availableUpdate;
+    final busy = isChecking || isInstalling;
+    final message = !supported
+        ? 'Mises à jour automatiques disponibles sur macOS et Windows.'
+        : update != null
+            ? 'Version ${update.version} disponible.'
+            : statusMessage.isNotEmpty
+                ? statusMessage
+                : 'Vérification automatique au lancement.';
+    final statusColor = update != null
+        ? theme.colorScheme.primary
+        : message.contains('jour')
+            ? Colors.green
+            : theme.colorScheme.onSurfaceVariant;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          constraints: const BoxConstraints(minHeight: 34),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(9),
+            color: statusColor.withOpacity(0.10),
+            border: Border.all(
+              color: statusColor.withOpacity(0.22),
+            ),
+          ),
+          child: Row(
+            children: [
+              if (busy) ...[
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: statusColor,
+                  ),
+                ),
+              ] else ...[
+                Icon(
+                  update != null
+                      ? Icons.system_update_alt_rounded
+                      : message.contains('jour')
+                          ? Icons.check_circle_outline_rounded
+                          : Icons.info_outline_rounded,
+                  size: 16,
+                  color: statusColor,
+                ),
+              ],
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: statusColor,
+                    fontWeight: FontWeight.w800,
+                    height: 1.15,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (downloadProgress != null) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              minHeight: 4,
+              value: downloadProgress!.clamp(0.0, 1.0).toDouble(),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        if (update != null) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: _MacSmallButton(
+              icon: Icons.download_done_rounded,
+              label: isInstalling ? 'Installation...' : 'Installer',
+              onPressed: busy ? null : onInstall,
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }
 
@@ -2212,38 +2379,42 @@ class _MacSmallButton extends StatelessWidget {
 
   final IconData icon;
   final String label;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final enabled = onPressed != null;
 
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: onPressed,
-      child: Container(
-        height: 38,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          color: theme.colorScheme.primary.withOpacity(0.12),
-          border: Border.all(
-            color: theme.colorScheme.primary.withOpacity(0.34),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: theme.colorScheme.primary),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w800,
-              ),
+      child: Opacity(
+        opacity: enabled ? 1 : 0.48,
+        child: Container(
+          height: 38,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            color: theme.colorScheme.primary.withOpacity(0.12),
+            border: Border.all(
+              color: theme.colorScheme.primary.withOpacity(0.34),
             ),
-          ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

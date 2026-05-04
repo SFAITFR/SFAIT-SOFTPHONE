@@ -19,7 +19,7 @@ class UpdateService {
   static const _releaseAssetPrefix = 'sfait-softphone';
   static const _updaterChannel = MethodChannel('sfait/updater');
 
-  bool get isSupported => !kIsWeb && Platform.isMacOS;
+  bool get isSupported => !kIsWeb && (Platform.isMacOS || Platform.isWindows);
 
   Future<AppUpdateInfo?> checkForUpdate() async {
     if (!isSupported) {
@@ -134,16 +134,37 @@ class UpdateService {
 
   Future<void> installUpdate(File installer) async {
     if (!isSupported) {
-      throw StateError('Les mises à jour automatiques macOS uniquement.');
+      throw StateError(
+        'Les mises à jour automatiques sont disponibles sur macOS et Windows.',
+      );
+    }
+
+    if (Platform.isMacOS) {
+      await _updaterChannel.invokeMethod<void>(
+        'installUpdateFromDmg',
+        {'dmgPath': installer.path},
+      );
+      return;
     }
 
     await _updaterChannel.invokeMethod<void>(
-      'installUpdateFromDmg',
-      {'dmgPath': installer.path},
+      'installUpdateFromInstaller',
+      {'installerPath': installer.path},
     );
   }
 
   Map<String, dynamic>? _selectAsset(
+    List<Map<String, dynamic>> assets,
+    String version,
+  ) {
+    if (Platform.isWindows) {
+      return _selectWindowsAsset(assets, version);
+    }
+
+    return _selectMacAsset(assets, version);
+  }
+
+  Map<String, dynamic>? _selectMacAsset(
     List<Map<String, dynamic>> assets,
     String version,
   ) {
@@ -171,6 +192,63 @@ class UpdateService {
       },
       orElse: () => null,
     );
+  }
+
+  Map<String, dynamic>? _selectWindowsAsset(
+    List<Map<String, dynamic>> assets,
+    String version,
+  ) {
+    final archTokens = _windowsArchTokens();
+    final exactNames = <String>[
+      for (final arch in archTokens) ...[
+        '$_releaseAssetPrefix-$version-windows-$arch.exe',
+        '$_releaseAssetPrefix-$version-win-$arch.exe',
+        '$_releaseAssetPrefix-$version-$arch.exe',
+        '$_releaseAssetPrefix-$version-windows-$arch.msi',
+        '$_releaseAssetPrefix-$version-win-$arch.msi',
+        '$_releaseAssetPrefix-$version-$arch.msi',
+      ],
+    ];
+
+    for (final expectedName in exactNames) {
+      final exact = assets.cast<Map<String, dynamic>?>().firstWhere(
+            (asset) => asset?['name'] == expectedName,
+            orElse: () => null,
+          );
+      if (exact != null) {
+        return exact;
+      }
+    }
+
+    final compatible = assets.where((asset) {
+      final name = (asset['name'] as String? ?? '').toLowerCase();
+      final isInstaller = name.endsWith('.exe') || name.endsWith('.msi');
+      if (!isInstaller || !name.contains(version.toLowerCase())) {
+        return false;
+      }
+      return archTokens.any((arch) => name.contains(arch));
+    }).toList(growable: false);
+
+    if (compatible.isNotEmpty) {
+      return compatible.first;
+    }
+
+    return assets.cast<Map<String, dynamic>?>().firstWhere(
+      (asset) {
+        final name = (asset?['name'] as String? ?? '').toLowerCase();
+        return (name.endsWith('.exe') || name.endsWith('.msi')) &&
+            name.contains(version.toLowerCase());
+      },
+      orElse: () => null,
+    );
+  }
+
+  List<String> _windowsArchTokens() {
+    return switch (Abi.current()) {
+      Abi.windowsArm64 => const ['arm64', 'aarch64'],
+      Abi.windowsIA32 => const ['x86', 'ia32', 'i386'],
+      _ => const ['x64', 'x86_64', 'amd64'],
+    };
   }
 
   int _compareVersions(String left, String right) {
