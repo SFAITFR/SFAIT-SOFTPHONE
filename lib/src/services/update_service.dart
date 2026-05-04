@@ -17,6 +17,7 @@ class UpdateService {
   );
   static const _repository = 'SFAITFR/SFAIT-SOFTPHONE';
   static const _releaseAssetPrefix = 'sfait-softphone';
+  static const _windowsInstallerAsset = 'SFAIT_Softphone_installer.msi';
   static const _updaterChannel = MethodChannel('sfait/updater');
 
   bool get isSupported => !kIsWeb && (Platform.isMacOS || Platform.isWindows);
@@ -92,10 +93,14 @@ class UpdateService {
     }
 
     final updatesDirectory = Directory(
-      '${Directory.systemTemp.path}/sfait-softphone-updates/${update.tagName}',
+      _joinPath([
+        Directory.systemTemp.path,
+        'sfait-softphone-updates',
+        update.tagName,
+      ]),
     );
     await updatesDirectory.create(recursive: true);
-    final target = File('${updatesDirectory.path}/${update.assetName}');
+    final target = File(_joinPath([updatesDirectory.path, update.assetName]));
     if (await target.exists()) {
       await target.delete();
     }
@@ -135,7 +140,7 @@ class UpdateService {
   Future<void> installUpdate(File installer) async {
     if (!isSupported) {
       throw StateError(
-        'Les mises à jour automatiques sont disponibles sur macOS et Windows.',
+        'Les mises à jour automatiques ne sont pas disponibles sur cette plateforme.',
       );
     }
 
@@ -147,10 +152,10 @@ class UpdateService {
       return;
     }
 
-    await _updaterChannel.invokeMethod<void>(
-      'installUpdateFromInstaller',
-      {'installerPath': installer.path},
-    );
+    if (Platform.isWindows) {
+      await _installWindowsUpdate(installer);
+      return;
+    }
   }
 
   Map<String, dynamic>? _selectAsset(
@@ -161,36 +166,22 @@ class UpdateService {
       return _selectWindowsAsset(assets, version);
     }
 
-    return _selectMacAsset(assets, version);
-  }
-
-  Map<String, dynamic>? _selectMacAsset(
-    List<Map<String, dynamic>> assets,
-    String version,
-  ) {
     final arch = Abi.current() == Abi.macosArm64 ? 'arm64' : 'x86_64';
     final expectedName = '$_releaseAssetPrefix-$version-$arch.dmg';
 
-    Map<String, dynamic>? byName(String name) {
-      return assets.cast<Map<String, dynamic>?>().firstWhere(
-            (asset) => asset?['name'] == name,
-            orElse: () => null,
-          );
-    }
-
-    final exact = byName(expectedName);
+    final exact = _assetByName(assets, expectedName);
     if (exact != null) {
       return exact;
     }
 
-    return assets.cast<Map<String, dynamic>?>().firstWhere(
+    return _firstAssetWhere(
+      assets,
       (asset) {
-        final name = (asset?['name'] as String? ?? '').toLowerCase();
+        final name = (asset['name'] as String? ?? '').toLowerCase();
         return name.endsWith('.dmg') &&
             name.contains(version.toLowerCase()) &&
             name.contains(arch.toLowerCase());
       },
-      orElse: () => null,
     );
   }
 
@@ -198,57 +189,196 @@ class UpdateService {
     List<Map<String, dynamic>> assets,
     String version,
   ) {
-    final archTokens = _windowsArchTokens();
-    final exactNames = <String>[
-      for (final arch in archTokens) ...[
-        '$_releaseAssetPrefix-$version-windows-$arch.exe',
-        '$_releaseAssetPrefix-$version-win-$arch.exe',
-        '$_releaseAssetPrefix-$version-$arch.exe',
-        '$_releaseAssetPrefix-$version-windows-$arch.msi',
-        '$_releaseAssetPrefix-$version-win-$arch.msi',
-        '$_releaseAssetPrefix-$version-$arch.msi',
-      ],
+    final arch = Abi.current() == Abi.windowsArm64 ? 'arm64' : 'x64';
+    final expectedNames = <String>[
+      _windowsInstallerAsset,
+      '$_releaseAssetPrefix-$version-$arch.msi',
+      '$_releaseAssetPrefix-$version-windows-$arch.msi',
     ];
 
-    for (final expectedName in exactNames) {
-      final exact = assets.cast<Map<String, dynamic>?>().firstWhere(
-            (asset) => asset?['name'] == expectedName,
-            orElse: () => null,
-          );
+    for (final expectedName in expectedNames) {
+      final exact = _assetByName(assets, expectedName);
       if (exact != null) {
         return exact;
       }
     }
 
-    final compatible = assets.where((asset) {
+    final versionLower = version.toLowerCase();
+    final archLower = arch.toLowerCase();
+    final versionedInstaller = _firstAssetWhere(assets, (asset) {
       final name = (asset['name'] as String? ?? '').toLowerCase();
-      final isInstaller = name.endsWith('.exe') || name.endsWith('.msi');
-      if (!isInstaller || !name.contains(version.toLowerCase())) {
-        return false;
-      }
-      return archTokens.any((arch) => name.contains(arch));
-    }).toList(growable: false);
-
-    if (compatible.isNotEmpty) {
-      return compatible.first;
+      return _isWindowsUpdateAsset(name) &&
+          name.contains(versionLower) &&
+          name.contains(archLower);
+    });
+    if (versionedInstaller != null) {
+      return versionedInstaller;
     }
 
-    return assets.cast<Map<String, dynamic>?>().firstWhere(
-      (asset) {
-        final name = (asset?['name'] as String? ?? '').toLowerCase();
-        return (name.endsWith('.exe') || name.endsWith('.msi')) &&
-            name.contains(version.toLowerCase());
-      },
-      orElse: () => null,
+    return _firstAssetWhere(assets, (asset) {
+      final name = (asset['name'] as String? ?? '').toLowerCase();
+      return _isWindowsUpdateAsset(name) &&
+          name.contains('sfait') &&
+          name.contains('softphone');
+    });
+  }
+
+  Map<String, dynamic>? _assetByName(
+    List<Map<String, dynamic>> assets,
+    String name,
+  ) {
+    return _firstAssetWhere(
+      assets,
+      (asset) => asset['name'] == name,
     );
   }
 
-  List<String> _windowsArchTokens() {
-    return switch (Abi.current()) {
-      Abi.windowsArm64 => const ['arm64', 'aarch64'],
-      Abi.windowsIA32 => const ['x86', 'ia32', 'i386'],
-      _ => const ['x64', 'x86_64', 'amd64'],
-    };
+  Map<String, dynamic>? _firstAssetWhere(
+    List<Map<String, dynamic>> assets,
+    bool Function(Map<String, dynamic> asset) test,
+  ) {
+    for (final asset in assets) {
+      if (test(asset)) {
+        return asset;
+      }
+    }
+    return null;
+  }
+
+  bool _isWindowsUpdateAsset(String name) {
+    return name.endsWith('.msi');
+  }
+
+  Future<void> _installWindowsUpdate(File installer) async {
+    final path = installer.path;
+    final lowerPath = path.toLowerCase();
+    if (lowerPath.endsWith('.msi')) {
+      await _installWindowsMsiUpdate(installer);
+      return;
+    }
+    throw StateError('Installateur Windows non pris en charge.');
+  }
+
+  Future<void> _installWindowsMsiUpdate(File installer) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final script = File(
+      _joinPath([
+        Directory.systemTemp.path,
+        'sfait-softphone-updates',
+        'install-msi-$timestamp.cmd',
+      ]),
+    );
+    final launcher = File(
+      _joinPath([
+        Directory.systemTemp.path,
+        'sfait-softphone-updates',
+        'launch-msi-$timestamp.vbs',
+      ]),
+    );
+    await script.parent.create(recursive: true);
+    await script.writeAsString(
+      _windowsMsiUpdateCommand(
+        msiPath: installer.path,
+      ),
+      encoding: systemEncoding,
+    );
+    await launcher.writeAsString(
+      _windowsHiddenCommandLauncher(script.path),
+      encoding: systemEncoding,
+    );
+
+    await Process.start(
+      'wscript.exe',
+      [launcher.path],
+      mode: ProcessStartMode.detached,
+    );
+
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    exit(0);
+  }
+
+  String _windowsMsiUpdateCommand({
+    required String msiPath,
+  }) {
+    final escapedMsi = msiPath.replaceAll('%', '%%');
+    return '''
+@echo off
+setlocal EnableExtensions
+set "MSI_PATH=$escapedMsi"
+set "UPDATER_LOG=%TEMP%\\sfait-softphone-updater.log"
+set "MSI_LOG=%TEMP%\\sfait-softphone-msi-update.log"
+
+echo [%DATE% %TIME%] MSI update runner started for %MSI_PATH%>>"%UPDATER_LOG%"
+ping -n 3 127.0.0.1 >nul
+
+if not exist "%MSI_PATH%" (
+  echo [%DATE% %TIME%] MSI not found: %MSI_PATH%>>"%UPDATER_LOG%"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('La mise a jour a echoue: installateur introuvable. Log: %MSI_LOG%', 'SFAIT Softphone') | Out-Null"
+  exit /b 2
+)
+
+echo [%DATE% %TIME%] Starting msiexec>>"%UPDATER_LOG%"
+"%SystemRoot%\\System32\\msiexec.exe" /i "%MSI_PATH%" /quiet /norestart /l*v "%MSI_LOG%"
+set "EXIT_CODE=%ERRORLEVEL%"
+echo [%DATE% %TIME%] msiexec exited with code %EXIT_CODE%>>"%UPDATER_LOG%"
+
+if "%EXIT_CODE%"=="0" goto relaunch
+if "%EXIT_CODE%"=="1641" goto relaunch
+if "%EXIT_CODE%"=="3010" goto relaunch
+
+echo [%DATE% %TIME%] MSI update failed. See %MSI_LOG%>>"%UPDATER_LOG%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('La mise a jour a echoue avec le code %EXIT_CODE%. Log: %MSI_LOG%', 'SFAIT Softphone') | Out-Null"
+exit /b %EXIT_CODE%
+
+:relaunch
+ping -n 2 127.0.0.1 >nul
+
+set "EXE_PATH=%LOCALAPPDATA%\\Programs\\SFAIT Softphone\\sfait_softphone.exe"
+if exist "%EXE_PATH%" goto start_app
+
+set "EXE_PATH=%LOCALAPPDATA%\\SFAIT Softphone\\sfait_softphone.exe"
+if exist "%EXE_PATH%" goto start_app
+
+set "EXE_PATH=%ProgramFiles%\\SFAIT Softphone\\sfait_softphone.exe"
+if exist "%EXE_PATH%" goto start_app
+
+set "EXE_PATH=%ProgramFiles(x86)%\\SFAIT Softphone\\sfait_softphone.exe"
+if exist "%EXE_PATH%" goto start_app
+
+echo [%DATE% %TIME%] No installed executable found to relaunch.>>"%UPDATER_LOG%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('La mise a jour est terminee, mais SFAIT Softphone n''a pas pu etre relance automatiquement.', 'SFAIT Softphone') | Out-Null"
+exit /b 0
+
+:start_app
+echo [%DATE% %TIME%] Relaunching %EXE_PATH%>>"%UPDATER_LOG%"
+start "" "%EXE_PATH%"
+exit /b 0
+''';
+  }
+
+  String _windowsHiddenCommandLauncher(String commandPath) {
+    final escapedPath = commandPath.replaceAll('"', '""');
+    return '''
+Set shell = CreateObject("WScript.Shell")
+shell.Run Chr(34) & "$escapedPath" & Chr(34), 0, False
+''';
+  }
+
+  String _joinPath(List<String> parts) {
+    if (parts.isEmpty) {
+      return '';
+    }
+
+    var path = parts.first;
+    for (final part in parts.skip(1)) {
+      final trimmed = part.replaceAll(RegExp(r'^[\\/]+'), '');
+      if (path.endsWith(Platform.pathSeparator)) {
+        path = '$path$trimmed';
+      } else {
+        path = '$path${Platform.pathSeparator}$trimmed';
+      }
+    }
+    return path;
   }
 
   int _compareVersions(String left, String right) {

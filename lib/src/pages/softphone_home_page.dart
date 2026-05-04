@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -1268,6 +1269,8 @@ class _SettingsTabState extends State<_SettingsTab> {
   int _sectionIndex = 0;
   late String _pendingCodecId;
 
+  bool get _isWindows => defaultTargetPlatform == TargetPlatform.windows;
+
   List<TextEditingController> get _pbxControllers => [
         widget.domainController,
         widget.extensionController,
@@ -1492,20 +1495,22 @@ class _SettingsTabState extends State<_SettingsTab> {
           _MacSettingsGroup(
             title: 'Application',
             children: [
-              _MacSettingsRow(
-                label: 'Barre de menus',
-                child: _MacSwitch(
-                  value: widget.generalSettings.showMenuBarIcon,
-                  onChanged: widget.onMenuBarIconChanged,
+              if (!_isWindows)
+                _MacSettingsRow(
+                  label: 'Barre de menus',
+                  child: _MacSwitch(
+                    value: widget.generalSettings.showMenuBarIcon,
+                    onChanged: widget.onMenuBarIconChanged,
+                  ),
                 ),
-              ),
-              _MacSettingsRow(
-                label: 'Dock',
-                child: _MacSwitch(
-                  value: widget.generalSettings.showDockIcon,
-                  onChanged: widget.onDockIconChanged,
+              if (!_isWindows)
+                _MacSettingsRow(
+                  label: 'Épinglé au Dock',
+                  child: _MacSwitch(
+                    value: widget.generalSettings.showDockIcon,
+                    onChanged: widget.onDockIconChanged,
+                  ),
                 ),
-              ),
               _MacSettingsRow(
                 label: 'Lancement au démarrage',
                 child: _MacSwitch(
