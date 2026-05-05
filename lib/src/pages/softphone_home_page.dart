@@ -18,6 +18,17 @@ import '../viewmodels/softphone_controller.dart';
 import '../widgets/dialpad.dart';
 import '../widgets/status_chip.dart';
 
+String _formatCallDuration(Duration duration) {
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+
+  if (hours > 0) {
+    return '$hours:$minutes:$seconds';
+  }
+  return '$minutes:$seconds';
+}
+
 class SoftphoneHomePage extends StatefulWidget {
   const SoftphoneHomePage({super.key});
 
@@ -122,6 +133,7 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
                                       account: controller.account,
                                       activeRemoteIdentity:
                                           controller.activeRemoteIdentity,
+                                      callElapsed: controller.callElapsed,
                                       canPlaceCall: controller.canPlaceCall,
                                       canHangup: controller.canHangup,
                                       canToggleMute: controller.canToggleMute,
@@ -242,6 +254,7 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
                       status: controller.status,
                       activeRemoteIdentity: controller.activeRemoteIdentity,
                       statusMessage: controller.statusMessage,
+                      callElapsed: controller.callElapsed,
                       canToggleMute: controller.canToggleMute,
                       canToggleHold: controller.canToggleHold,
                       canTransfer: controller.canTransfer,
@@ -452,6 +465,7 @@ class _DialerTab extends StatelessWidget {
     required this.statusMessage,
     required this.account,
     required this.activeRemoteIdentity,
+    required this.callElapsed,
     required this.canPlaceCall,
     required this.canHangup,
     required this.canToggleMute,
@@ -479,6 +493,7 @@ class _DialerTab extends StatelessWidget {
   final String statusMessage;
   final SipAccount account;
   final String activeRemoteIdentity;
+  final Duration callElapsed;
   final bool canPlaceCall;
   final bool canHangup;
   final bool canToggleMute;
@@ -537,7 +552,9 @@ class _DialerTab extends StatelessWidget {
               Text(
                 account.extension.isEmpty
                     ? statusMessage
-                    : 'Poste ${account.extension} • ${account.domain}',
+                    : inCall
+                        ? '${_formatCallDuration(callElapsed)} • Poste ${account.extension} • ${account.domain}'
+                        : 'Poste ${account.extension} • ${account.domain}',
                 style: theme.textTheme.bodySmall,
               ),
             ],
@@ -726,6 +743,7 @@ class _CallOverlay extends StatelessWidget {
     required this.status,
     required this.activeRemoteIdentity,
     required this.statusMessage,
+    required this.callElapsed,
     required this.canToggleMute,
     required this.canToggleHold,
     required this.canTransfer,
@@ -746,6 +764,7 @@ class _CallOverlay extends StatelessWidget {
   final SoftphoneConnectionStatus status;
   final String activeRemoteIdentity;
   final String statusMessage;
+  final Duration callElapsed;
   final bool canToggleMute;
   final bool canToggleHold;
   final bool canTransfer;
@@ -832,6 +851,15 @@ class _CallOverlay extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium,
                         ),
+                        if (inCall) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Durée ${_formatCallDuration(callElapsed)}',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

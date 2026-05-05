@@ -53,6 +53,9 @@ class SoftphoneController extends ChangeNotifier {
   bool _isMuted = false;
   bool _isOnHold = false;
   int _requestVersion = 0;
+  DateTime? _callStartedAt;
+  Duration _callElapsed = Duration.zero;
+  Timer? _callElapsedTimer;
   Timer? _settingsStatusClearTimer;
   Timer? _startupUpdateCheckTimer;
   Timer? _updateCheckTimer;
@@ -78,6 +81,7 @@ class SoftphoneController extends ChangeNotifier {
   String get activeRemoteIdentity => _activeRemoteIdentity;
   bool get isMuted => _isMuted;
   bool get isOnHold => _isOnHold;
+  Duration get callElapsed => _callElapsed;
   GeneralSettings get generalSettings => _generalSettings;
   List<AudioDeviceOption> get audioInputs => List.unmodifiable(_audioInputs);
   List<AudioDeviceOption> get audioOutputs => List.unmodifiable(_audioOutputs);
@@ -347,6 +351,7 @@ class SoftphoneController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _callElapsedTimer?.cancel();
     _settingsStatusClearTimer?.cancel();
     _startupUpdateCheckTimer?.cancel();
     _updateCheckTimer?.cancel();
@@ -440,8 +445,17 @@ class SoftphoneController extends ChangeNotifier {
   void _handleServiceEvent(SoftphoneServiceEvent event) {
     final previousStatus = _status;
     final remoteIdentity = event.remoteIdentity?.trim();
+    final hasCallHistory =
+        event.historyDirection != null && event.historySummary != null;
     final isIdleStatus = event.status == SoftphoneConnectionStatus.registered ||
         event.status == SoftphoneConnectionStatus.offline;
+    final shouldIgnoreIdleRefreshDuringCall =
+        _isLiveCallStatus(previousStatus) && isIdleStatus && !hasCallHistory;
+
+    if (shouldIgnoreIdleRefreshDuringCall) {
+      return;
+    }
+
     _status = event.status;
     _statusMessage = event.message;
     if (isIdleStatus) {
@@ -460,6 +474,14 @@ class SoftphoneController extends ChangeNotifier {
         event.status == SoftphoneConnectionStatus.offline) {
       _isMuted = false;
       _isOnHold = false;
+    }
+
+    if (event.status == SoftphoneConnectionStatus.inCall) {
+      _startCallElapsedTimer();
+    } else if (hasCallHistory ||
+        (previousStatus == SoftphoneConnectionStatus.inCall &&
+            event.status != SoftphoneConnectionStatus.inCall)) {
+      _stopCallElapsedTimer();
     }
 
     if (event.historyDirection != null && event.historySummary != null) {
@@ -497,6 +519,44 @@ class SoftphoneController extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  bool _isLiveCallStatus(SoftphoneConnectionStatus status) {
+    return status == SoftphoneConnectionStatus.calling ||
+        status == SoftphoneConnectionStatus.ringing ||
+        status == SoftphoneConnectionStatus.inCall;
+  }
+
+  void _startCallElapsedTimer() {
+    _callStartedAt ??= DateTime.now();
+    _updateCallElapsed();
+    _callElapsedTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      _updateCallElapsed(notify: true);
+    });
+  }
+
+  void _stopCallElapsedTimer() {
+    _callElapsedTimer?.cancel();
+    _callElapsedTimer = null;
+    _callStartedAt = null;
+    _callElapsed = Duration.zero;
+  }
+
+  void _updateCallElapsed({bool notify = false}) {
+    final startedAt = _callStartedAt;
+    if (startedAt == null) {
+      return;
+    }
+
+    final nextElapsed = DateTime.now().difference(startedAt);
+    if (nextElapsed.inSeconds == _callElapsed.inSeconds) {
+      return;
+    }
+
+    _callElapsed = nextElapsed;
+    if (notify) {
+      notifyListeners();
+    }
   }
 
   String _formatError(Object error) {

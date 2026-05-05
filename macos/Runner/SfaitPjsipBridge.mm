@@ -345,6 +345,7 @@ public:
     registered_ = false;
     muted_ = false;
     held_ = false;
+    callActive_ = false;
     SfaitEmit(@{
       @"status" : @"offline",
       @"message" : @"Softphone déconnecté.",
@@ -364,6 +365,7 @@ public:
 
     applySelectedDevices();
 
+    callActive_ = true;
     activeCall_ = std::make_unique<SfaitPjsipCall>(*account_, PJSUA_INVALID_ID, this, false);
     CallOpParam param(true);
     activeCall_->makeCall(normalizeTarget(destination), param);
@@ -448,6 +450,9 @@ public:
   void handleRegistration(int code, const std::string &reason) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     registered_ = code >= 200 && code < 300;
+    if (callActive_) {
+      return;
+    }
     if (registered_) {
       SfaitEmit(@{
         @"status" : @"registered",
@@ -469,6 +474,7 @@ public:
     if (!account_) {
       return;
     }
+    callActive_ = true;
     activeCall_ = std::make_unique<SfaitPjsipCall>(*account_, callId, this, true);
     NSString *remote = currentRemoteIdentity();
     SfaitEmit(@{
@@ -522,6 +528,7 @@ public:
             : @"outgoing";
         muted_ = false;
         held_ = false;
+        callActive_ = false;
         SfaitEmit(@{
           @"status" : registered_ ? @"registered" : @"offline",
           @"message" : @"Appel terminé.",
@@ -680,6 +687,7 @@ private:
   std::string extension_;
   bool started_ = false;
   bool registered_ = false;
+  bool callActive_ = false;
   bool muted_ = false;
   bool held_ = false;
   int captureDeviceId_ = -1;

@@ -368,6 +368,7 @@ class SfaitPjsipEngine {
     registered_ = false;
     muted_ = false;
     held_ = false;
+    call_active_ = false;
     Emit({{EncodableValue("status"), EncodableValue("offline")},
           {EncodableValue("message"), EncodableValue("Softphone deconnecte.")},
           {EncodableValue("isMuted"), EncodableValue(false)},
@@ -383,6 +384,7 @@ class SfaitPjsipEngine {
       throw std::runtime_error("Destination vide.");
     }
     applySelectedDevices();
+    call_active_ = true;
     active_call_ = std::make_unique<SfaitPjsipCall>(*account_, PJSUA_INVALID_ID, this, false);
     CallOpParam param(true);
     active_call_->makeCall(normalizeTarget(destination), param);
@@ -449,6 +451,7 @@ class SfaitPjsipEngine {
   void handleRegistration(int code, const std::string& reason) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     registered_ = code >= 200 && code < 300;
+    if (call_active_) return;
     if (registered_) {
       Emit({{EncodableValue("status"), EncodableValue("registered")},
             {EncodableValue("message"),
@@ -465,6 +468,7 @@ class SfaitPjsipEngine {
   void handleIncomingCall(int call_id) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     if (!account_) return;
+    call_active_ = true;
     active_call_ = std::make_unique<SfaitPjsipCall>(*account_, call_id, this, true);
     const std::string remote = currentRemoteIdentity();
     Emit({{EncodableValue("status"), EncodableValue("ringing")},
@@ -509,6 +513,7 @@ class SfaitPjsipEngine {
             call->incoming() ? (call->established() ? "incoming" : "missed") : "outgoing";
         muted_ = false;
         held_ = false;
+        call_active_ = false;
         Emit({{EncodableValue("status"), EncodableValue(registered_ ? "registered" : "offline")},
               {EncodableValue("message"), EncodableValue("Appel termine.")},
               {EncodableValue("remoteIdentity"), EncodableValue(remote)},
@@ -648,6 +653,7 @@ class SfaitPjsipEngine {
   std::string extension_;
   bool started_ = false;
   bool registered_ = false;
+  bool call_active_ = false;
   bool muted_ = false;
   bool held_ = false;
   int capture_device_id_ = -1;
