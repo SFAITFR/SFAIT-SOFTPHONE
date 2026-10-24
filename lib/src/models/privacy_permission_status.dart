@@ -1,4 +1,9 @@
-enum PrivacyPermissionKind { microphone, launchAtStartup }
+enum PrivacyPermissionKind {
+  microphone,
+  launchAtStartup,
+  notifications,
+  androidPhoneAccount,
+}
 
 class PrivacyPermissionStatus {
   const PrivacyPermissionStatus({

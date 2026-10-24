@@ -7,17 +7,24 @@ import 'package:sfait_softphone/src/models/softphone_status.dart';
 import 'package:sfait_softphone/src/services/preferences_service.dart';
 import 'package:sfait_softphone/src/services/ringtone_service.dart';
 import 'package:sfait_softphone/src/services/softphone_service.dart';
+import 'package:sfait_softphone/src/services/system_settings_service.dart';
 import 'package:sfait_softphone/src/viewmodels/softphone_controller.dart';
 
 class _FakeSoftphoneService extends SoftphoneService {
   final StreamController<SoftphoneServiceEvent> _eventsController =
       StreamController<SoftphoneServiceEvent>.broadcast();
+  bool answerCalled = false;
 
   @override
   Stream<SoftphoneServiceEvent> get events => _eventsController.stream;
 
   void emit(SoftphoneServiceEvent event) {
     _eventsController.add(event);
+  }
+
+  @override
+  Future<void> answer() async {
+    answerCalled = true;
   }
 
   @override
@@ -36,6 +43,14 @@ class _FakeRingtoneService extends RingtoneService {
 
   @override
   Future<void> stop() async {}
+}
+
+class _FakeSystemSettingsService extends SystemSettingsService {
+  @override
+  Future<void> showWindowForIncomingCall({String remoteIdentity = ''}) async {}
+
+  @override
+  Future<void> selectPreferredCodec(String codecId) async {}
 }
 
 void main() {
@@ -99,5 +114,56 @@ void main() {
     expect(controller.inCall, isFalse);
     expect(controller.canHangup, isFalse);
     expect(controller.history, hasLength(1));
+  });
+
+  test('keeps hangup available immediately after answering incoming call',
+      () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
+    final preferences = PreferencesService();
+    await preferences.init();
+
+    final service = _FakeSoftphoneService();
+    final controller = SoftphoneController(
+      preferences,
+      service: service,
+      ringtoneService: _FakeRingtoneService(),
+      systemSettingsService: _FakeSystemSettingsService(),
+    )..bootstrap();
+    addTearDown(controller.dispose);
+
+    service.emit(
+      const SoftphoneServiceEvent(
+        status: SoftphoneConnectionStatus.ringing,
+        message: 'Appel entrant de 0612345678',
+        remoteIdentity: '0612345678',
+        isMuted: false,
+        isOnHold: false,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.ringing, isTrue);
+    expect(controller.canHangup, isTrue);
+
+    await controller.answer();
+
+    expect(service.answerCalled, isTrue);
+    expect(controller.inCall, isTrue);
+    expect(controller.canHangup, isTrue);
+    expect(controller.activeRemoteIdentity, '0612345678');
+
+    service.emit(
+      const SoftphoneServiceEvent(
+        status: SoftphoneConnectionStatus.registered,
+        message: 'Compte 101 enregistré et prêt à recevoir des appels.',
+        isMuted: false,
+        isOnHold: false,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.inCall, isTrue);
+    expect(controller.canHangup, isTrue);
   });
 }

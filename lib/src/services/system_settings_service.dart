@@ -6,6 +6,27 @@ import 'package:flutter/services.dart';
 import '../models/audio_device_option.dart';
 import '../models/codec_option.dart';
 import '../models/privacy_permission_status.dart';
+import '../models/softphone_status.dart';
+
+class AndroidCallAction {
+  const AndroidCallAction({
+    required this.action,
+    required this.remoteIdentity,
+  });
+
+  final String action;
+  final String remoteIdentity;
+}
+
+class AndroidPushWakeup {
+  const AndroidPushWakeup({
+    required this.remaining,
+    required this.remoteIdentity,
+  });
+
+  final Duration remaining;
+  final String remoteIdentity;
+}
 
 class SystemSettingsService {
   static const _launchChannel = MethodChannel('sfait/launch_at_startup');
@@ -13,12 +34,17 @@ class SystemSettingsService {
   static const _nativeSoftphoneChannel = MethodChannel(
     'sfait/native_softphone',
   );
+  static const _androidCallUiChannel = MethodChannel('sfait/android_call_ui');
 
   List<AudioDeviceOption> _cachedInputs = const <AudioDeviceOption>[];
   List<AudioDeviceOption> _cachedOutputs = const <AudioDeviceOption>[];
 
   bool get _isNativeDesktop =>
       !kIsWeb && (Platform.isMacOS || Platform.isWindows);
+  bool get _isAndroid => !kIsWeb && Platform.isAndroid;
+  bool get _supportsPrivacyPermissions =>
+      !kIsWeb && (Platform.isMacOS || Platform.isWindows || Platform.isAndroid);
+  bool get usesNativeIncomingCallUi => _isAndroid;
 
   Future<void> configureLaunchAtStartup() async {
     return;
@@ -66,16 +92,144 @@ class SystemSettingsService {
     );
   }
 
-  Future<void> showWindowForIncomingCall() async {
-    if (!_isNativeDesktop) {
+  Future<void> startAndroidBackgroundService() async {
+    if (!_isAndroid) {
       return;
     }
 
-    await _channel.invokeMethod<void>('showWindowForIncomingCall');
+    await _channel.invokeMethod<void>('startAndroidBackgroundService');
+  }
+
+  Future<void> setAndroidPushNotificationModeEnabled(bool enabled) async {
+    if (!_isAndroid) {
+      return;
+    }
+
+    await _channel.invokeMethod<void>(
+      'setAndroidPushModeEnabled',
+      {'enabled': enabled},
+    );
+  }
+
+  Future<AndroidPushWakeup?> consumeAndroidPushWakeup() async {
+    if (!_isAndroid) {
+      return null;
+    }
+
+    final raw = await _channel
+        .invokeMethod<Map<Object?, Object?>>('consumeAndroidPushWakeup');
+    if (raw == null || raw['active'] != true) {
+      return null;
+    }
+
+    final remainingMs = (raw['remainingMs'] as num?)?.toInt() ?? 0;
+    if (remainingMs <= 0) {
+      return null;
+    }
+
+    return AndroidPushWakeup(
+      remaining: Duration(milliseconds: remainingMs),
+      remoteIdentity: (raw['remoteIdentity'] as String?)?.trim() ?? '',
+    );
+  }
+
+  Future<void> registerAndroidPhoneAccount() async {
+    if (!_isAndroid) {
+      return;
+    }
+
+    await _androidCallUiChannel.invokeMethod<void>('registerPhoneAccount');
+  }
+
+  Future<void> stopAndroidBackgroundService() async {
+    if (!_isAndroid) {
+      return;
+    }
+
+    await _channel.invokeMethod<void>('stopAndroidBackgroundService');
+  }
+
+  Future<void> updateAndroidBackgroundStatus({
+    required SoftphoneConnectionStatus status,
+    required String message,
+    required String extension,
+  }) async {
+    if (!_isAndroid) {
+      return;
+    }
+
+    await _channel.invokeMethod<void>(
+      'updateAndroidBackgroundStatus',
+      {
+        'status': status.name,
+        'message': message,
+        'extension': extension,
+      },
+    );
+  }
+
+  Future<void> showWindowForIncomingCall({String remoteIdentity = ''}) async {
+    if (_isNativeDesktop) {
+      await _channel.invokeMethod<void>('showWindowForIncomingCall');
+      return;
+    }
+
+    if (_isAndroid) {
+      await _androidCallUiChannel.invokeMethod<void>(
+        'showIncomingCallUi',
+        {'remoteIdentity': remoteIdentity},
+      );
+    }
+  }
+
+  Future<void> setAndroidCallUiActive() async {
+    if (!_isAndroid) {
+      return;
+    }
+
+    await _androidCallUiChannel.invokeMethod<void>('setCallActive');
+  }
+
+  Future<void> setAndroidCallUiRinging() async {
+    if (!_isAndroid) {
+      return;
+    }
+
+    await _androidCallUiChannel.invokeMethod<void>('setCallRinging');
+  }
+
+  Future<void> endAndroidCallUi() async {
+    if (!_isAndroid) {
+      return;
+    }
+
+    await _androidCallUiChannel.invokeMethod<void>('endCallUi');
+  }
+
+  Future<AndroidCallAction?> consumePendingAndroidCallAction() async {
+    if (!_isAndroid) {
+      return null;
+    }
+
+    final raw = await _androidCallUiChannel
+        .invokeMethod<Map<Object?, Object?>>('consumePendingCallAction');
+    if (raw == null) {
+      return null;
+    }
+
+    final action = (raw['action'] as String?)?.trim() ?? '';
+    if (action.isEmpty) {
+      return null;
+    }
+
+    return AndroidCallAction(
+      action: action,
+      remoteIdentity: (raw['remoteIdentity'] as String?)?.trim() ?? '',
+    );
   }
 
   Future<List<PrivacyPermissionStatus>> getPrivacyPermissions() async {
-    if (!_isNativeDesktop) {
+    if (!_supportsPrivacyPermissions) {
       return const <PrivacyPermissionStatus>[];
     }
 
@@ -101,7 +255,7 @@ class SystemSettingsService {
   Future<void> openPrivacyPermissionSettings(
     PrivacyPermissionKind kind,
   ) async {
-    if (!_isNativeDesktop) {
+    if (!_supportsPrivacyPermissions) {
       return;
     }
 
@@ -289,6 +443,8 @@ class SystemSettingsService {
   PrivacyPermissionKind _privacyKindFromNative(String? value) {
     return switch (value) {
       'launchAtStartup' => PrivacyPermissionKind.launchAtStartup,
+      'notifications' => PrivacyPermissionKind.notifications,
+      'androidPhoneAccount' => PrivacyPermissionKind.androidPhoneAccount,
       _ => PrivacyPermissionKind.microphone,
     };
   }

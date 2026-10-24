@@ -7,6 +7,7 @@ class GeneralSettings {
     required this.launchAtStartup,
     required this.showMenuBarIcon,
     required this.showDockIcon,
+    required this.usePushNotifications,
     required this.themePreference,
     required this.audioInputId,
     required this.audioOutputId,
@@ -20,6 +21,7 @@ class GeneralSettings {
   final bool launchAtStartup;
   final bool showMenuBarIcon;
   final bool showDockIcon;
+  final bool usePushNotifications;
   final AppThemePreference themePreference;
   final String audioInputId;
   final String audioOutputId;
@@ -38,6 +40,7 @@ class GeneralSettings {
     bool? launchAtStartup,
     bool? showMenuBarIcon,
     bool? showDockIcon,
+    bool? usePushNotifications,
     AppThemePreference? themePreference,
     String? audioInputId,
     String? audioOutputId,
@@ -51,6 +54,7 @@ class GeneralSettings {
       launchAtStartup: launchAtStartup ?? this.launchAtStartup,
       showMenuBarIcon: showMenuBarIcon ?? this.showMenuBarIcon,
       showDockIcon: showDockIcon ?? this.showDockIcon,
+      usePushNotifications: usePushNotifications ?? this.usePushNotifications,
       themePreference: themePreference ?? this.themePreference,
       audioInputId: audioInputId ?? this.audioInputId,
       audioOutputId: audioOutputId ?? this.audioOutputId,
@@ -67,6 +71,7 @@ class GeneralSettings {
       'launchAtStartup': launchAtStartup,
       'showMenuBarIcon': showMenuBarIcon,
       'showDockIcon': showDockIcon,
+      'usePushNotifications': usePushNotifications,
       'themePreference': themePreference.name,
       'audioInputId': audioInputId,
       'audioOutputId': audioOutputId,
@@ -83,6 +88,7 @@ class GeneralSettings {
       launchAtStartup: json['launchAtStartup'] as bool? ?? false,
       showMenuBarIcon: json['showMenuBarIcon'] as bool? ?? false,
       showDockIcon: json['showDockIcon'] as bool? ?? true,
+      usePushNotifications: json['usePushNotifications'] as bool? ?? false,
       themePreference: AppThemePreference.values.firstWhere(
         (value) => value.name == json['themePreference'],
         orElse: () => AppThemePreference.dark,
@@ -103,6 +109,7 @@ class GeneralSettings {
     launchAtStartup: false,
     showMenuBarIcon: false,
     showDockIcon: true,
+    usePushNotifications: false,
     themePreference: AppThemePreference.dark,
     audioInputId: '',
     audioOutputId: '',

@@ -1,0 +1,23 @@
+[Unit]
+Description=SFAIT Push Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sfait-push-gateway
+EnvironmentFile=/etc/sfait-push-gateway.env
+ExecStart=/usr/bin/node /opt/sfait-push-gateway/src/server.js
+Restart=always
+RestartSec=3
+User=sfait-push
+Group=sfait-push
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sfait-push-gateway
+ReadOnlyPaths=/etc/sfait-push-gateway
+
+[Install]
+WantedBy=multi-user.target

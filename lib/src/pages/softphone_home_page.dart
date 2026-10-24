@@ -81,7 +81,7 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
       builder: (context, controller, _) {
         _hydrateFields(controller.account, controller.destination);
         _scheduleUpdatePrompt(controller);
-        final showCallOverlay = controller.ringing;
+        final showCallOverlay = controller.showCallOverlay;
         if (!controller.inCall && _showTransferPanel) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && _showTransferPanel) {
@@ -138,9 +138,13 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
                                       canHangup: controller.canHangup,
                                       canToggleMute: controller.canToggleMute,
                                       canToggleHold: controller.canToggleHold,
+                                      canToggleSpeaker:
+                                          controller.canToggleSpeaker,
                                       canTransfer: controller.canTransfer,
                                       isMuted: controller.isMuted,
                                       isOnHold: controller.isOnHold,
+                                      isSpeakerEnabled:
+                                          controller.isSpeakerEnabled,
                                       onDigit: controller.handleDigit,
                                       onDestinationChanged:
                                           controller.setDestination,
@@ -155,6 +159,7 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
                                       },
                                       onToggleMute: controller.toggleMute,
                                       onToggleHold: controller.toggleHold,
+                                      onToggleSpeaker: controller.toggleSpeaker,
                                       transferController: _transferController,
                                       showTransferPanel: _showTransferPanel,
                                       onShowTransferPanel: _openTransferPanel,
@@ -214,6 +219,8 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
                                           controller.updateThemePreference,
                                       onLaunchAtStartupChanged:
                                           controller.updateLaunchAtStartup,
+                                      onPushNotificationModeChanged:
+                                          controller.updatePushNotificationMode,
                                       onMenuBarIconChanged: controller
                                           .updateMenuBarIconVisibility,
                                       onDockIconChanged:
@@ -257,9 +264,11 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
                       callElapsed: controller.callElapsed,
                       canToggleMute: controller.canToggleMute,
                       canToggleHold: controller.canToggleHold,
+                      canToggleSpeaker: controller.canToggleSpeaker,
                       canTransfer: controller.canTransfer,
                       isMuted: controller.isMuted,
                       isOnHold: controller.isOnHold,
+                      isSpeakerEnabled: controller.isSpeakerEnabled,
                       onDigit: controller.handleDigit,
                       onAnswer: () async {
                         setState(() => _tabIndex = 0);
@@ -271,6 +280,7 @@ class _SoftphoneHomePageState extends State<SoftphoneHomePage> {
                       },
                       onToggleMute: controller.toggleMute,
                       onToggleHold: controller.toggleHold,
+                      onToggleSpeaker: controller.toggleSpeaker,
                       transferController: _transferController,
                       showTransferPanel: _showTransferPanel,
                       onShowTransferPanel: _openTransferPanel,
@@ -470,9 +480,11 @@ class _DialerTab extends StatelessWidget {
     required this.canHangup,
     required this.canToggleMute,
     required this.canToggleHold,
+    required this.canToggleSpeaker,
     required this.canTransfer,
     required this.isMuted,
     required this.isOnHold,
+    required this.isSpeakerEnabled,
     required this.onDigit,
     required this.onDestinationChanged,
     required this.onEraseLastDigit,
@@ -481,6 +493,7 @@ class _DialerTab extends StatelessWidget {
     required this.onHangup,
     required this.onToggleMute,
     required this.onToggleHold,
+    required this.onToggleSpeaker,
     required this.transferController,
     required this.showTransferPanel,
     required this.onShowTransferPanel,
@@ -498,9 +511,11 @@ class _DialerTab extends StatelessWidget {
   final bool canHangup;
   final bool canToggleMute;
   final bool canToggleHold;
+  final bool canToggleSpeaker;
   final bool canTransfer;
   final bool isMuted;
   final bool isOnHold;
+  final bool isSpeakerEnabled;
   final ValueChanged<String> onDigit;
   final ValueChanged<String> onDestinationChanged;
   final VoidCallback onEraseLastDigit;
@@ -509,6 +524,7 @@ class _DialerTab extends StatelessWidget {
   final Future<void> Function() onHangup;
   final Future<void> Function() onToggleMute;
   final Future<void> Function() onToggleHold;
+  final Future<void> Function() onToggleSpeaker;
   final TextEditingController transferController;
   final bool showTransferPanel;
   final VoidCallback onShowTransferPanel;
@@ -518,6 +534,8 @@ class _DialerTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isMobilePlatform = defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
     final isCalling = status == SoftphoneConnectionStatus.calling;
     final isRinging = status == SoftphoneConnectionStatus.ringing;
     final inCall = status == SoftphoneConnectionStatus.inCall;
@@ -564,6 +582,8 @@ class _DialerTab extends StatelessWidget {
         TextField(
           controller: destinationController,
           onChanged: onDestinationChanged,
+          readOnly: isMobilePlatform,
+          showCursor: !isMobilePlatform,
           decoration: InputDecoration(
             isDense: true,
             labelText: 'Destination',
@@ -691,11 +711,45 @@ class _DialerTab extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: canToggleMute ? onToggleMute : null,
-          icon: Icon(isMuted ? Icons.mic_off : Icons.mic, size: 18),
-          label: Text(isMuted ? 'Réactiver le micro' : 'Couper le micro'),
-        ),
+        if (isMobilePlatform)
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: canToggleMute ? onToggleMute : null,
+                  icon: Icon(isMuted ? Icons.mic_off : Icons.mic, size: 18),
+                  label: Text(
+                    isMuted ? 'Réactiver le micro' : 'Couper le micro',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: canToggleSpeaker ? onToggleSpeaker : null,
+                  icon: Icon(
+                    isSpeakerEnabled
+                        ? Icons.volume_up_rounded
+                        : Icons.hearing_rounded,
+                    size: 18,
+                  ),
+                  label: const Text('Haut-parleur'),
+                  style: isSpeakerEnabled
+                      ? OutlinedButton.styleFrom(
+                          backgroundColor: theme.colorScheme.primaryContainer,
+                          foregroundColor: theme.colorScheme.onPrimaryContainer,
+                        )
+                      : null,
+                ),
+              ),
+            ],
+          )
+        else
+          OutlinedButton.icon(
+            onPressed: canToggleMute ? onToggleMute : null,
+            icon: Icon(isMuted ? Icons.mic_off : Icons.mic, size: 18),
+            label: Text(isMuted ? 'Réactiver le micro' : 'Couper le micro'),
+          ),
         AnimatedSize(
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOut,
@@ -746,14 +800,17 @@ class _CallOverlay extends StatelessWidget {
     required this.callElapsed,
     required this.canToggleMute,
     required this.canToggleHold,
+    required this.canToggleSpeaker,
     required this.canTransfer,
     required this.isMuted,
     required this.isOnHold,
+    required this.isSpeakerEnabled,
     required this.onDigit,
     required this.onAnswer,
     required this.onHangup,
     required this.onToggleMute,
     required this.onToggleHold,
+    required this.onToggleSpeaker,
     required this.transferController,
     required this.showTransferPanel,
     required this.onShowTransferPanel,
@@ -767,14 +824,17 @@ class _CallOverlay extends StatelessWidget {
   final Duration callElapsed;
   final bool canToggleMute;
   final bool canToggleHold;
+  final bool canToggleSpeaker;
   final bool canTransfer;
   final bool isMuted;
   final bool isOnHold;
+  final bool isSpeakerEnabled;
   final ValueChanged<String> onDigit;
   final Future<void> Function() onAnswer;
   final Future<void> Function() onHangup;
   final Future<void> Function() onToggleMute;
   final Future<void> Function() onToggleHold;
+  final Future<void> Function() onToggleSpeaker;
   final TextEditingController transferController;
   final bool showTransferPanel;
   final VoidCallback onShowTransferPanel;
@@ -789,6 +849,8 @@ class _CallOverlay extends StatelessWidget {
         : activeRemoteIdentity;
     final isRinging = status == SoftphoneConnectionStatus.ringing;
     final inCall = status == SoftphoneConnectionStatus.inCall;
+    final isMobilePlatform = defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
 
     return ColoredBox(
       color: theme.colorScheme.surface.withOpacity(0.98),
@@ -941,16 +1003,58 @@ class _CallOverlay extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 6),
-                    OutlinedButton.icon(
-                      onPressed: canToggleMute ? onToggleMute : null,
-                      icon: Icon(isMuted ? Icons.mic_off : Icons.mic),
-                      label: Text(
-                        isMuted ? 'Réactiver le micro' : 'Couper le micro',
+                    if (isMobilePlatform)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: canToggleMute ? onToggleMute : null,
+                              icon: Icon(
+                                isMuted ? Icons.mic_off : Icons.mic,
+                              ),
+                              label: Text(
+                                isMuted ? 'Réactiver' : 'Micro',
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(36),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed:
+                                  canToggleSpeaker ? onToggleSpeaker : null,
+                              icon: Icon(
+                                isSpeakerEnabled
+                                    ? Icons.volume_up_rounded
+                                    : Icons.hearing_rounded,
+                              ),
+                              label: const Text('Haut-parleur'),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(36),
+                                backgroundColor: isSpeakerEnabled
+                                    ? theme.colorScheme.primaryContainer
+                                    : null,
+                                foregroundColor: isSpeakerEnabled
+                                    ? theme.colorScheme.onPrimaryContainer
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      OutlinedButton.icon(
+                        onPressed: canToggleMute ? onToggleMute : null,
+                        icon: Icon(isMuted ? Icons.mic_off : Icons.mic),
+                        label: Text(
+                          isMuted ? 'Réactiver le micro' : 'Couper le micro',
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(36),
+                        ),
                       ),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(36),
-                      ),
-                    ),
                     AnimatedSize(
                       duration: const Duration(milliseconds: 160),
                       curve: Curves.easeOut,
@@ -1240,6 +1344,7 @@ class _SettingsTab extends StatefulWidget {
     required this.updateDownloadProgress,
     required this.onThemeChanged,
     required this.onLaunchAtStartupChanged,
+    required this.onPushNotificationModeChanged,
     required this.onMenuBarIconChanged,
     required this.onDockIconChanged,
     required this.onAudioInputChanged,
@@ -1276,6 +1381,7 @@ class _SettingsTab extends StatefulWidget {
   final double? updateDownloadProgress;
   final Future<void> Function(AppThemePreference preference) onThemeChanged;
   final Future<void> Function(bool enabled) onLaunchAtStartupChanged;
+  final Future<void> Function(bool enabled) onPushNotificationModeChanged;
   final Future<void> Function(bool enabled) onMenuBarIconChanged;
   final Future<void> Function(bool enabled) onDockIconChanged;
   final Future<void> Function(String deviceId) onAudioInputChanged;
@@ -1297,7 +1403,26 @@ class _SettingsTabState extends State<_SettingsTab> {
   int _sectionIndex = 0;
   late String _pendingCodecId;
 
+  bool get _isMacOS => defaultTargetPlatform == TargetPlatform.macOS;
   bool get _isWindows => defaultTargetPlatform == TargetPlatform.windows;
+  bool get _supportsDesktopPresentation => _isMacOS;
+  bool get _supportsLaunchAtStartup => _isMacOS || _isWindows;
+  bool get _supportsBuiltInUpdates => _isMacOS || _isWindows;
+  bool get _supportsDesktopAudioSettings => _isMacOS || _isWindows;
+  bool get _supportsCustomRingtoneImport => _isMacOS || _isWindows;
+  bool get _supportsPushNotificationMode =>
+      defaultTargetPlatform == TargetPlatform.android;
+
+  String get _platformLabel {
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android => 'Android',
+      TargetPlatform.iOS => 'iOS',
+      TargetPlatform.macOS => 'macOS',
+      TargetPlatform.windows => 'Windows',
+      TargetPlatform.linux => 'Linux',
+      TargetPlatform.fuchsia => 'Fuchsia',
+    };
+  }
 
   List<TextEditingController> get _pbxControllers => [
         widget.domainController,
@@ -1466,6 +1591,8 @@ class _SettingsTabState extends State<_SettingsTab> {
                         _ => _PrivacySettingsSection(
                             key: const ValueKey('privacy-section'),
                             permissions: widget.privacyPermissions,
+                            showLaunchAtStartupPermission:
+                                _supportsLaunchAtStartup,
                             onRefresh: widget.onRefreshPrivacyPermissions,
                             onOpenSettings:
                                 widget.onOpenPrivacyPermissionSettings,
@@ -1514,60 +1641,86 @@ class _SettingsTabState extends State<_SettingsTab> {
   }) {
     final theme = Theme.of(context);
     final ringtoneVolume = widget.generalSettings.ringtoneVolume;
+    final applicationRows = <Widget>[
+      if (_supportsDesktopPresentation)
+        _MacSettingsRow(
+          label: 'Icône barre de menus',
+          child: _MacSwitch(
+            value: widget.generalSettings.showMenuBarIcon,
+            onChanged: widget.onMenuBarIconChanged,
+          ),
+        ),
+      if (_supportsDesktopPresentation)
+        _MacSettingsRow(
+          label: 'Icône dans le Dock',
+          child: _MacSwitch(
+            value: widget.generalSettings.showDockIcon,
+            onChanged: widget.onDockIconChanged,
+          ),
+        ),
+      if (_supportsLaunchAtStartup)
+        _MacSettingsRow(
+          label: 'Lancement au démarrage',
+          child: _MacSwitch(
+            value: widget.generalSettings.launchAtStartup,
+            onChanged: widget.onLaunchAtStartupChanged,
+          ),
+        ),
+      if (_supportsPushNotificationMode)
+        _MacSettingsRow(
+          label: 'Mode push',
+          child: _MacSwitchWithHelper(
+            value: widget.generalSettings.usePushNotifications,
+            helperText: widget.generalSettings.usePushNotifications
+                ? 'La gateway réveille l’app lors d’un appel entrant.'
+                : 'Le SIP reste enregistré en arrière-plan en permanence.',
+            onChanged: widget.onPushNotificationModeChanged,
+          ),
+        ),
+    ];
+    final showAudioSettings = _supportsDesktopAudioSettings ||
+        widget.audioInputs.isNotEmpty ||
+        widget.audioOutputs.isNotEmpty ||
+        widget.ringtoneOutputs.isNotEmpty;
+    final showRingtoneSettings =
+        _supportsCustomRingtoneImport || widget.ringtoneOutputs.isNotEmpty;
 
     return SingleChildScrollView(
       key: const ValueKey('general-section'),
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
         children: [
-          _MacSettingsGroup(
-            title: 'Application',
-            children: [
-              if (!_isWindows)
-                _MacSettingsRow(
-                  label: 'Barre de menus',
-                  child: _MacSwitch(
-                    value: widget.generalSettings.showMenuBarIcon,
-                    onChanged: widget.onMenuBarIconChanged,
-                  ),
-                ),
-              if (!_isWindows)
-                _MacSettingsRow(
-                  label: 'Épinglé au Dock',
-                  child: _MacSwitch(
-                    value: widget.generalSettings.showDockIcon,
-                    onChanged: widget.onDockIconChanged,
-                  ),
-                ),
-              _MacSettingsRow(
-                label: 'Lancement au démarrage',
-                child: _MacSwitch(
-                  value: widget.generalSettings.launchAtStartup,
-                  onChanged: widget.onLaunchAtStartupChanged,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
+          if (applicationRows.isNotEmpty) ...[
+            _MacSettingsGroup(
+              title: 'Application',
+              children: applicationRows,
+            ),
+            const SizedBox(height: 12),
+          ],
           _MacSettingsGroup(
             title: 'Informations',
             children: [
               _MacSettingsRow(
+                label: 'Plateforme',
+                child: _MacValuePill(text: _platformLabel),
+              ),
+              _MacSettingsRow(
                 label: 'Version',
                 child: _MacValuePill(text: widget.appVersion),
               ),
-              _MacSettingsRow(
-                label: 'Mises à jour',
-                child: _AppUpdateControls(
-                  supported: widget.updatesSupported,
-                  availableUpdate: widget.availableUpdate,
-                  isChecking: widget.isCheckingForUpdate,
-                  isInstalling: widget.isInstallingUpdate,
-                  statusMessage: widget.updateStatusMessage,
-                  downloadProgress: widget.updateDownloadProgress,
-                  onInstall: widget.onInstallAvailableUpdate,
+              if (_supportsBuiltInUpdates)
+                _MacSettingsRow(
+                  label: 'Mises à jour',
+                  child: _AppUpdateControls(
+                    supported: widget.updatesSupported,
+                    availableUpdate: widget.availableUpdate,
+                    isChecking: widget.isCheckingForUpdate,
+                    isInstalling: widget.isInstallingUpdate,
+                    statusMessage: widget.updateStatusMessage,
+                    downloadProgress: widget.updateDownloadProgress,
+                    onInstall: widget.onInstallAvailableUpdate,
+                  ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1587,132 +1740,139 @@ class _SettingsTabState extends State<_SettingsTab> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          _MacSettingsGroup(
-            title: 'Audio',
-            children: [
-              _MacSettingsRow(
-                label: 'Micro',
-                child: _MacPopupButton<String>(
-                  value: selectedInput,
-                  placeholder: 'Sélectionner un micro',
-                  items: widget.audioInputs
-                      .map((device) => (device.id, device.label))
-                      .toList(growable: false),
-                  helperText: widget.audioInputs.isEmpty
-                      ? 'Aucun micro détecté pour le moment.'
-                      : null,
-                  onChanged: widget.audioInputs.isEmpty
-                      ? null
-                      : widget.onAudioInputChanged,
+          if (showAudioSettings) ...[
+            const SizedBox(height: 12),
+            _MacSettingsGroup(
+              title: 'Audio',
+              children: [
+                _MacSettingsRow(
+                  label: 'Micro',
+                  child: _MacPopupButton<String>(
+                    value: selectedInput,
+                    placeholder: 'Sélectionner un micro',
+                    items: widget.audioInputs
+                        .map((device) => (device.id, device.label))
+                        .toList(growable: false),
+                    helperText: widget.audioInputs.isEmpty
+                        ? 'Aucun micro détecté pour le moment.'
+                        : null,
+                    onChanged: widget.audioInputs.isEmpty
+                        ? null
+                        : widget.onAudioInputChanged,
+                  ),
                 ),
-              ),
-              _MacSettingsRow(
-                label: 'Sortie appel',
-                child: _MacPopupButton<String>(
-                  value: selectedOutput,
-                  placeholder: 'Sélectionner une sortie',
-                  items: widget.audioOutputs
-                      .map((device) => (device.id, device.label))
-                      .toList(growable: false),
-                  helperText: widget.audioOutputs.isEmpty
-                      ? 'Aucune sortie audio détectée pour le moment.'
-                      : null,
-                  onChanged: widget.audioOutputs.isEmpty
-                      ? null
-                      : widget.onAudioOutputChanged,
+                _MacSettingsRow(
+                  label: 'Sortie appel',
+                  child: _MacPopupButton<String>(
+                    value: selectedOutput,
+                    placeholder: 'Sélectionner une sortie',
+                    items: widget.audioOutputs
+                        .map((device) => (device.id, device.label))
+                        .toList(growable: false),
+                    helperText: widget.audioOutputs.isEmpty
+                        ? 'Aucune sortie audio détectée pour le moment.'
+                        : null,
+                    onChanged: widget.audioOutputs.isEmpty
+                        ? null
+                        : widget.onAudioOutputChanged,
+                  ),
                 ),
-              ),
-              _MacSettingsRow(
-                label: 'Sortie sonnerie',
-                child: _MacPopupButton<String>(
-                  value: selectedRingtoneOutput,
-                  placeholder: 'Sélectionner une sortie',
-                  items: widget.ringtoneOutputs
-                      .map((device) => (device.id, device.label))
-                      .toList(growable: false),
-                  helperText: widget.ringtoneOutputs.isEmpty
-                      ? 'Aucune sortie audio détectée pour le moment.'
-                      : null,
-                  onChanged: widget.ringtoneOutputs.isEmpty
-                      ? null
-                      : widget.onRingtoneOutputChanged,
+                _MacSettingsRow(
+                  label: 'Sortie sonnerie',
+                  child: _MacPopupButton<String>(
+                    value: selectedRingtoneOutput,
+                    placeholder: 'Sélectionner une sortie',
+                    items: widget.ringtoneOutputs
+                        .map((device) => (device.id, device.label))
+                        .toList(growable: false),
+                    helperText: widget.ringtoneOutputs.isEmpty
+                        ? 'Aucune sortie audio détectée pour le moment.'
+                        : null,
+                    onChanged: widget.ringtoneOutputs.isEmpty
+                        ? null
+                        : widget.onRingtoneOutputChanged,
+                  ),
                 ),
-              ),
-              _MacSettingsRow(
-                label: 'Volume sonnerie',
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Slider(
-                        value: ringtoneVolume,
-                        min: 0,
-                        max: 1,
-                        divisions: 20,
-                        label: '${(ringtoneVolume * 100).round()}%',
-                        onChanged: widget.onRingtoneVolumeChanged,
-                      ),
-                    ),
-                    SizedBox(
-                      width: 42,
-                      child: Text(
-                        '${(ringtoneVolume * 100).round()}%',
-                        textAlign: TextAlign.right,
-                        style: theme.textTheme.labelMedium,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _MacSettingsGroup(
-            title: 'Sonnerie',
-            children: [
-              _MacSettingsRow(
-                label: 'Fichier',
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _MacValuePill(
-                        text: widget.generalSettings.ringtoneFileName.isEmpty
-                            ? 'Sonnerie par défaut'
-                            : widget.generalSettings.ringtoneFileName,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _MacSmallButton(
-                      icon: Icons.library_music_outlined,
-                      label: 'Importer',
-                      onPressed: widget.onImportCustomRingtone,
-                    ),
-                  ],
-                ),
-              ),
-              Builder(
-                builder: (context) {
-                  final theme = Theme.of(context);
-
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Formats acceptés : MP3, WAV, M4A, AIFF, CAF.',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          height: 1.15,
+                _MacSettingsRow(
+                  label: 'Volume sonnerie',
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Slider(
+                          value: ringtoneVolume,
+                          min: 0,
+                          max: 1,
+                          divisions: 20,
+                          label: '${(ringtoneVolume * 100).round()}%',
+                          onChanged: widget.onRingtoneVolumeChanged,
                         ),
                       ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
+                      SizedBox(
+                        width: 42,
+                        child: Text(
+                          '${(ringtoneVolume * 100).round()}%',
+                          textAlign: TextAlign.right,
+                          style: theme.textTheme.labelMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (showRingtoneSettings) ...[
+            const SizedBox(height: 12),
+            _MacSettingsGroup(
+              title: 'Sonnerie',
+              children: [
+                _MacSettingsRow(
+                  label: 'Fichier',
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _MacValuePill(
+                          text: widget.generalSettings.ringtoneFileName.isEmpty
+                              ? 'Sonnerie par défaut'
+                              : widget.generalSettings.ringtoneFileName,
+                        ),
+                      ),
+                      if (_supportsCustomRingtoneImport) ...[
+                        const SizedBox(width: 8),
+                        _MacSmallButton(
+                          icon: Icons.library_music_outlined,
+                          label: 'Importer',
+                          onPressed: widget.onImportCustomRingtone,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (_supportsCustomRingtoneImport)
+                  Builder(
+                    builder: (context) {
+                      final theme = Theme.of(context);
+
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Formats acceptés : MP3, WAV, M4A, AIFF, CAF.',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              height: 1.15,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -2125,6 +2285,44 @@ class _MacSwitch extends StatelessWidget {
   }
 }
 
+class _MacSwitchWithHelper extends StatelessWidget {
+  const _MacSwitchWithHelper({
+    required this.value,
+    required this.helperText,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final String helperText;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _MacSwitch(
+          value: value,
+          onChanged: onChanged,
+        ),
+        const SizedBox(height: 3),
+        Text(
+          helperText,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.right,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            height: 1.15,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _MacSegmentedControl<T> extends StatelessWidget {
   const _MacSegmentedControl({
     required this.value,
@@ -2492,31 +2690,34 @@ class _PrivacySettingsSection extends StatelessWidget {
   const _PrivacySettingsSection({
     super.key,
     required this.permissions,
+    required this.showLaunchAtStartupPermission,
     required this.onRefresh,
     required this.onOpenSettings,
   });
 
   final List<PrivacyPermissionStatus> permissions;
+  final bool showLaunchAtStartupPermission;
   final Future<void> Function() onRefresh;
   final Future<void> Function(PrivacyPermissionKind kind) onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
     final displayedPermissions = permissions.isEmpty
-        ? const <PrivacyPermissionStatus>[
-            PrivacyPermissionStatus(
+        ? <PrivacyPermissionStatus>[
+            const PrivacyPermissionStatus(
               kind: PrivacyPermissionKind.microphone,
               label: 'Microphone',
               description:
                   'Autorise la capture de votre voix pendant les appels.',
               isActive: false,
             ),
-            PrivacyPermissionStatus(
-              kind: PrivacyPermissionKind.launchAtStartup,
-              label: 'Ouverture au démarrage',
-              description: 'Permet de lancer le softphone automatiquement.',
-              isActive: false,
-            ),
+            if (showLaunchAtStartupPermission)
+              const PrivacyPermissionStatus(
+                kind: PrivacyPermissionKind.launchAtStartup,
+                label: 'Ouverture au démarrage',
+                description: 'Permet de lancer le softphone automatiquement.',
+                isActive: false,
+              ),
           ]
         : permissions;
 

@@ -12,12 +12,13 @@ import '../models/sip_account.dart';
 import '../models/softphone_status.dart';
 import '../services/dtmf_tone_service.dart';
 import '../services/preferences_service.dart';
+import '../services/push_notification_service.dart';
 import '../services/ringtone_service.dart';
 import '../services/softphone_service.dart';
 import '../services/system_settings_service.dart';
 import '../services/update_service.dart';
 
-class SoftphoneController extends ChangeNotifier {
+class SoftphoneController extends ChangeNotifier with WidgetsBindingObserver {
   SoftphoneController(
     this._preferencesService, {
     SoftphoneService? service,
@@ -25,12 +26,16 @@ class SoftphoneController extends ChangeNotifier {
     RingtoneService? ringtoneService,
     SystemSettingsService? systemSettingsService,
     UpdateService? updateService,
+    PushNotificationService? pushNotificationService,
   })  : _service = service ?? SoftphoneService(),
         _toneService = toneService ?? DtmfToneService(),
         _ringtoneService = ringtoneService ?? RingtoneService(),
         _systemSettingsService =
             systemSettingsService ?? SystemSettingsService(),
-        _updateService = updateService ?? UpdateService() {
+        _updateService = updateService ?? UpdateService(),
+        _pushNotificationService =
+            pushNotificationService ?? PushNotificationService() {
+    WidgetsBinding.instance.addObserver(this);
     _serviceEventsSubscription = _service.events.listen(_handleServiceEvent);
   }
 
@@ -40,6 +45,7 @@ class SoftphoneController extends ChangeNotifier {
   final RingtoneService _ringtoneService;
   final SystemSettingsService _systemSettingsService;
   final UpdateService _updateService;
+  final PushNotificationService _pushNotificationService;
   late final StreamSubscription<SoftphoneServiceEvent>
       _serviceEventsSubscription;
 
@@ -52,13 +58,18 @@ class SoftphoneController extends ChangeNotifier {
   String _activeRemoteIdentity = '';
   bool _isMuted = false;
   bool _isOnHold = false;
+  bool _isSpeakerEnabled = false;
   int _requestVersion = 0;
   DateTime? _callStartedAt;
   Duration _callElapsed = Duration.zero;
+  Future<void>? _connectInFlight;
   Timer? _callElapsedTimer;
   Timer? _settingsStatusClearTimer;
   Timer? _startupUpdateCheckTimer;
   Timer? _updateCheckTimer;
+  Timer? _androidPushIdleTimer;
+  DateTime? _androidPushWakeGraceUntil;
+  AndroidCallAction? _pendingAndroidCallAction;
   GeneralSettings _generalSettings = GeneralSettings.defaults;
   List<AudioDeviceOption> _audioInputs = const <AudioDeviceOption>[];
   List<AudioDeviceOption> _audioOutputs = const <AudioDeviceOption>[];
@@ -81,6 +92,7 @@ class SoftphoneController extends ChangeNotifier {
   String get activeRemoteIdentity => _activeRemoteIdentity;
   bool get isMuted => _isMuted;
   bool get isOnHold => _isOnHold;
+  bool get isSpeakerEnabled => _isSpeakerEnabled;
   Duration get callElapsed => _callElapsed;
   GeneralSettings get generalSettings => _generalSettings;
   List<AudioDeviceOption> get audioInputs => List.unmodifiable(_audioInputs);
@@ -111,8 +123,11 @@ class SoftphoneController extends ChangeNotifier {
   bool get canHangup => inCall || ringing || calling;
   bool get canToggleMute => inCall;
   bool get canToggleHold => inCall;
+  bool get canToggleSpeaker => inCall;
   bool get canSendDtmf => inCall;
-  bool get showCallOverlay => ringing || inCall;
+  bool get usesNativeIncomingCallUi =>
+      _systemSettingsService.usesNativeIncomingCallUi;
+  bool get showCallOverlay => ringing && !usesNativeIncomingCallUi;
   bool get canTransfer => inCall;
 
   void bootstrap() {
@@ -124,12 +139,26 @@ class SoftphoneController extends ChangeNotifier {
     _statusMessage = canConnect
         ? 'Configuration SIP chargée. Prêt à se connecter.'
         : 'Renseignez vos identifiants SIP pour démarrer.';
+    unawaited(
+      _systemSettingsService.setAndroidPushNotificationModeEnabled(
+        _generalSettings.usePushNotifications,
+      ),
+    );
+    if (!_generalSettings.usePushNotifications) {
+      _updateAndroidBackgroundStatus();
+    }
     notifyListeners();
 
+    if (!_generalSettings.usePushNotifications) {
+      unawaited(_systemSettingsService.startAndroidBackgroundService());
+    } else if (!canConnect) {
+      unawaited(_systemSettingsService.stopAndroidBackgroundService());
+    }
+    unawaited(_systemSettingsService.registerAndroidPhoneAccount());
+    unawaited(_consumePendingAndroidCallAction());
+
     if (canConnect) {
-      unawaited(
-        Future<void>.microtask(() => connect()),
-      );
+      unawaited(_connectAfterBootstrap());
     }
 
     unawaited(_initializeGeneralSettings());
@@ -226,20 +255,43 @@ class SoftphoneController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> connect() async {
+  Future<void> connect() {
+    final inFlight = _connectInFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _connect();
+    _connectInFlight = future.whenComplete(() {
+      _connectInFlight = null;
+    });
+    return _connectInFlight!;
+  }
+
+  Future<void> _connect() async {
     final requestId = ++_requestVersion;
     _status = SoftphoneConnectionStatus.connecting;
     _statusMessage = 'Connexion au compte ${_account.extension}...';
+    _updateAndroidBackgroundStatus();
     notifyListeners();
 
     try {
-      await _service.connect(_account);
+      final sipPushContactUriParams = _generalSettings.usePushNotifications
+          ? await _pushNotificationService.buildSipPushContactUriParams(
+              _account,
+            )
+          : null;
+      await _service.connect(
+        _account,
+        sipPushContactUriParams: sipPushContactUriParams,
+      );
     } catch (error) {
       if (requestId != _requestVersion) {
         return;
       }
       _status = SoftphoneConnectionStatus.error;
       _statusMessage = _formatError(error);
+      _updateAndroidBackgroundStatus();
       notifyListeners();
     }
   }
@@ -254,6 +306,7 @@ class SoftphoneController extends ChangeNotifier {
       }
       _status = SoftphoneConnectionStatus.error;
       _statusMessage = _formatError(error);
+      _updateAndroidBackgroundStatus();
       notifyListeners();
     }
   }
@@ -269,21 +322,36 @@ class SoftphoneController extends ChangeNotifier {
       }
       _status = SoftphoneConnectionStatus.error;
       _statusMessage = _formatError(error);
+      _updateAndroidBackgroundStatus();
       notifyListeners();
     }
   }
 
   Future<void> answer() async {
     final requestId = ++_requestVersion;
+    final remoteIdentity = _activeRemoteIdentity;
     try {
       await _applyCallAudioRoutingBeforeMediaStart();
       await _service.answer();
+      unawaited(_systemSettingsService.setAndroidCallUiActive());
+      if (requestId != _requestVersion) {
+        return;
+      }
+      _status = SoftphoneConnectionStatus.inCall;
+      _statusMessage = remoteIdentity.isEmpty
+          ? 'Communication active.'
+          : 'Communication active avec $remoteIdentity';
+      _updateAndroidBackgroundStatus();
+      _startCallElapsedTimer();
+      unawaited(_ringtoneService.stop());
+      notifyListeners();
     } catch (error) {
       if (requestId != _requestVersion) {
         return;
       }
       _status = SoftphoneConnectionStatus.error;
       _statusMessage = _formatError(error);
+      _updateAndroidBackgroundStatus();
       notifyListeners();
     }
   }
@@ -292,6 +360,7 @@ class SoftphoneController extends ChangeNotifier {
     final requestId = ++_requestVersion;
     try {
       await _service.hangup();
+      unawaited(_systemSettingsService.endAndroidCallUi());
     } catch (error) {
       if (requestId != _requestVersion) {
         return;
@@ -330,6 +399,20 @@ class SoftphoneController extends ChangeNotifier {
     }
   }
 
+  Future<void> toggleSpeaker() async {
+    final requestId = ++_requestVersion;
+    try {
+      await _service.toggleSpeaker();
+    } catch (error) {
+      if (requestId != _requestVersion) {
+        return;
+      }
+      _status = SoftphoneConnectionStatus.error;
+      _statusMessage = _formatError(error);
+      notifyListeners();
+    }
+  }
+
   Future<void> transfer(String destination) async {
     final requestId = ++_requestVersion;
     try {
@@ -351,15 +434,38 @@ class SoftphoneController extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _callElapsedTimer?.cancel();
     _settingsStatusClearTimer?.cancel();
     _startupUpdateCheckTimer?.cancel();
     _updateCheckTimer?.cancel();
+    _androidPushIdleTimer?.cancel();
     unawaited(_ringtoneService.stop());
     unawaited(_toneService.dispose());
     unawaited(_service.dispose());
     _serviceEventsSubscription.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_generalSettings.usePushNotifications || !usesNativeIncomingCallUi) {
+      return;
+    }
+
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _androidPushIdleTimer?.cancel();
+        unawaited(_resumeAndroidPushMode());
+        break;
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        unawaited(_enterAndroidPushIdleMode());
+        break;
+      case AppLifecycleState.inactive:
+        break;
+    }
   }
 
   Future<void> checkForUpdates({bool showNoUpdateMessage = false}) async {
@@ -450,9 +556,16 @@ class SoftphoneController extends ChangeNotifier {
     final isIdleStatus = event.status == SoftphoneConnectionStatus.registered ||
         event.status == SoftphoneConnectionStatus.offline;
     final shouldIgnoreIdleRefreshDuringCall =
-        _isLiveCallStatus(previousStatus) && isIdleStatus && !hasCallHistory;
+        previousStatus == SoftphoneConnectionStatus.inCall &&
+            isIdleStatus &&
+            !hasCallHistory;
+    final shouldIgnoreRingingRefreshDuringCall =
+        previousStatus == SoftphoneConnectionStatus.inCall &&
+            event.status == SoftphoneConnectionStatus.ringing &&
+            !hasCallHistory;
 
-    if (shouldIgnoreIdleRefreshDuringCall) {
+    if (shouldIgnoreIdleRefreshDuringCall ||
+        shouldIgnoreRingingRefreshDuringCall) {
       return;
     }
 
@@ -469,19 +582,35 @@ class SoftphoneController extends ChangeNotifier {
     if (event.isOnHold != null) {
       _isOnHold = event.isOnHold!;
     }
+    if (event.isSpeakerEnabled != null) {
+      _isSpeakerEnabled = event.isSpeakerEnabled!;
+    }
 
     if (event.status == SoftphoneConnectionStatus.registered ||
         event.status == SoftphoneConnectionStatus.offline) {
       _isMuted = false;
       _isOnHold = false;
+      _isSpeakerEnabled = false;
+    }
+
+    if (event.status == SoftphoneConnectionStatus.registered) {
+      unawaited(_registerAndroidPushDevice());
     }
 
     if (event.status == SoftphoneConnectionStatus.inCall) {
       _startCallElapsedTimer();
+      unawaited(_systemSettingsService.setAndroidCallUiActive());
     } else if (hasCallHistory ||
         (previousStatus == SoftphoneConnectionStatus.inCall &&
             event.status != SoftphoneConnectionStatus.inCall)) {
       _stopCallElapsedTimer();
+    }
+
+    if ((event.status == SoftphoneConnectionStatus.registered ||
+            event.status == SoftphoneConnectionStatus.offline ||
+            event.status == SoftphoneConnectionStatus.error) &&
+        _isLiveCallStatus(previousStatus)) {
+      unawaited(_systemSettingsService.endAndroidCallUi());
     }
 
     if (event.historyDirection != null && event.historySummary != null) {
@@ -499,17 +628,30 @@ class SoftphoneController extends ChangeNotifier {
 
     if (event.status == SoftphoneConnectionStatus.ringing &&
         previousStatus != SoftphoneConnectionStatus.ringing) {
-      unawaited(_systemSettingsService.showWindowForIncomingCall());
+      unawaited(_systemSettingsService.setAndroidCallUiRinging());
+      _applyPendingAndroidCallActionIfNeeded();
       unawaited(
-        _ringtoneService.play(
-          outputDeviceId: _generalSettings.ringtoneOutputId,
-          filePath: _generalSettings.ringtoneFilePath,
-          volume: _generalSettings.ringtoneVolume,
+        _systemSettingsService.showWindowForIncomingCall(
+          remoteIdentity: event.remoteIdentity ?? _activeRemoteIdentity,
         ),
       );
+      if (!_systemSettingsService.usesNativeIncomingCallUi) {
+        unawaited(
+          _ringtoneService.play(
+            outputDeviceId: _generalSettings.ringtoneOutputId,
+            filePath: _generalSettings.ringtoneFilePath,
+            volume: _generalSettings.ringtoneVolume,
+          ),
+        );
+      }
     } else if (previousStatus == SoftphoneConnectionStatus.ringing &&
         event.status != SoftphoneConnectionStatus.ringing) {
       unawaited(_ringtoneService.stop());
+      unawaited(
+        event.status == SoftphoneConnectionStatus.inCall
+            ? _systemSettingsService.setAndroidCallUiActive()
+            : _systemSettingsService.endAndroidCallUi(),
+      );
     } else if (event.status == SoftphoneConnectionStatus.inCall ||
         event.status == SoftphoneConnectionStatus.offline ||
         event.status == SoftphoneConnectionStatus.error ||
@@ -518,7 +660,54 @@ class SoftphoneController extends ChangeNotifier {
       unawaited(_ringtoneService.stop());
     }
 
+    _updateAndroidBackgroundStatus();
     notifyListeners();
+  }
+
+  void _updateAndroidBackgroundStatus() {
+    unawaited(
+      _systemSettingsService.updateAndroidBackgroundStatus(
+        status: _status,
+        message: _statusMessage,
+        extension: _account.extension,
+      ),
+    );
+  }
+
+  Future<void> _registerAndroidPushDevice() async {
+    try {
+      await _pushNotificationService.registerAndroidDevice(_account);
+    } catch (_) {
+      // Push registration is best effort; SIP registration remains authoritative.
+    }
+  }
+
+  Future<void> _consumePendingAndroidCallAction() async {
+    try {
+      _pendingAndroidCallAction =
+          await _systemSettingsService.consumePendingAndroidCallAction();
+      _applyPendingAndroidCallActionIfNeeded();
+    } catch (_) {
+      // Best effort; direct SIP callbacks still drive the call state.
+    }
+  }
+
+  void _applyPendingAndroidCallActionIfNeeded() {
+    final pendingAction = _pendingAndroidCallAction;
+    if (pendingAction == null || !ringing) {
+      return;
+    }
+
+    _pendingAndroidCallAction = null;
+    switch (pendingAction.action) {
+      case 'answer':
+        unawaited(answer());
+        break;
+      case 'reject':
+      case 'hangup':
+        unawaited(hangup());
+        break;
+    }
   }
 
   bool _isLiveCallStatus(SoftphoneConnectionStatus status) {
@@ -593,6 +782,42 @@ class SoftphoneController extends ChangeNotifier {
       notifyListeners();
     } catch (_) {
       // Best effort on platform-specific startup integration.
+    }
+  }
+
+  Future<void> updatePushNotificationMode(bool enabled) async {
+    try {
+      _generalSettings = _generalSettings.copyWith(
+        usePushNotifications: enabled,
+      );
+      await _preferencesService.saveGeneralSettings(_generalSettings);
+      await _systemSettingsService.setAndroidPushNotificationModeEnabled(
+        enabled,
+      );
+
+      if (enabled) {
+        if (canConnect) {
+          await _pushNotificationService.registerAndroidDevice(_account);
+        }
+        _setSettingsStatusMessage(
+          'Mode push activé. La gateway réveillera l’app lors des appels.',
+        );
+        await _enterAndroidPushIdleMode();
+      } else {
+        _setSettingsStatusMessage(
+          'Mode arrière-plan permanent activé.',
+        );
+        await _systemSettingsService.startAndroidBackgroundService();
+        _updateAndroidBackgroundStatus();
+      }
+      notifyListeners();
+    } catch (error) {
+      _setSettingsStatusMessage(
+        enabled
+            ? 'Mode push activé, mais l’enregistrement gateway a échoué : ${_formatError(error)}'
+            : _formatError(error),
+      );
+      notifyListeners();
     }
   }
 
@@ -771,6 +996,9 @@ class SoftphoneController extends ChangeNotifier {
         ),
       );
       await _preferencesService.saveGeneralSettings(_generalSettings);
+      await _systemSettingsService.setAndroidPushNotificationModeEnabled(
+        _generalSettings.usePushNotifications,
+      );
       await _systemSettingsService.selectPreferredCodec(
         _generalSettings.preferredCodecId,
       );
@@ -885,6 +1113,82 @@ class SoftphoneController extends ChangeNotifier {
     } catch (_) {
       // Best effort on macOS presentation integration.
     }
+  }
+
+  Future<void> _enterAndroidPushIdleMode() async {
+    if (!_generalSettings.usePushNotifications ||
+        !usesNativeIncomingCallUi ||
+        _isLiveCallStatus(_status) ||
+        _status == SoftphoneConnectionStatus.connecting) {
+      return;
+    }
+
+    await _consumeAndroidPushWakeupWindow();
+
+    if (_isAndroidPushWakeGraceActive) {
+      _scheduleAndroidPushIdleAfterWakeGrace();
+      return;
+    }
+
+    await _systemSettingsService.stopAndroidBackgroundService();
+  }
+
+  Future<void> _connectAfterBootstrap() async {
+    await _consumeAndroidPushWakeupWindow();
+    await connect();
+  }
+
+  Future<void> _resumeAndroidPushMode() async {
+    await _consumeAndroidPushWakeupWindow();
+    if (canConnect &&
+        (_status == SoftphoneConnectionStatus.offline ||
+            _status == SoftphoneConnectionStatus.error)) {
+      await connect();
+    }
+  }
+
+  Future<void> _consumeAndroidPushWakeupWindow() async {
+    if (!_generalSettings.usePushNotifications || !usesNativeIncomingCallUi) {
+      return;
+    }
+
+    try {
+      final wakeup = await _systemSettingsService.consumeAndroidPushWakeup();
+      if (wakeup == null) {
+        return;
+      }
+
+      _androidPushWakeGraceUntil = DateTime.now().add(wakeup.remaining);
+      _scheduleAndroidPushIdleAfterWakeGrace();
+      if (wakeup.remoteIdentity.isNotEmpty && _activeRemoteIdentity.isEmpty) {
+        _activeRemoteIdentity = wakeup.remoteIdentity;
+      }
+    } catch (_) {
+      // Push wake-up is best effort; SIP events stay authoritative.
+    }
+  }
+
+  bool get _isAndroidPushWakeGraceActive {
+    final until = _androidPushWakeGraceUntil;
+    return until != null && DateTime.now().isBefore(until);
+  }
+
+  void _scheduleAndroidPushIdleAfterWakeGrace() {
+    final until = _androidPushWakeGraceUntil;
+    if (until == null) {
+      return;
+    }
+
+    final delay = until.difference(DateTime.now()) + const Duration(seconds: 2);
+    if (delay.isNegative) {
+      return;
+    }
+
+    _androidPushIdleTimer?.cancel();
+    _androidPushIdleTimer = Timer(delay, () {
+      _androidPushWakeGraceUntil = null;
+      unawaited(_enterAndroidPushIdleMode());
+    });
   }
 
   void _startUpdateChecks() {

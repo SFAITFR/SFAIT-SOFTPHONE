@@ -78,19 +78,24 @@ class Dialpad extends StatelessWidget {
                     borderRadius: BorderRadius.circular(radius),
                   ),
                 ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(digit, style: digitStyle),
-                    if (letters != null)
-                      Text(
-                        letters,
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              fontSize: 10.5,
-                              height: 1.0,
-                            ),
-                      ),
-                  ],
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(digit, style: digitStyle),
+                      if (letters != null)
+                        Text(
+                          letters,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    fontSize: 10.5,
+                                    height: 1.0,
+                                  ),
+                        ),
+                    ],
+                  ),
                 ),
               );
             },

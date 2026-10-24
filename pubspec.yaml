@@ -1,5 +1,5 @@
 name: sfait_softphone
-description: "SFAIT Softphone desktop pour macOS puis Windows."
+description: "SFAIT Softphone multi-plateforme pour macOS, Windows et Android."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -35,6 +35,12 @@ dependencies:
   shared_preferences: ^2.5.3
   path_provider: ^2.1.5
   audioplayers: ^6.4.0
+  flutter_webrtc: 1.2.0
+  sip_ua: ^1.1.0
+
+dependency_overrides:
+  flutter_webrtc:
+    path: vendor/flutter_webrtc_compat
 
 dev_dependencies:
   flutter_test:

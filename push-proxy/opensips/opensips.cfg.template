@@ -1,0 +1,438 @@
+#
+# SFAIT Softphone SIP Push Proxy - OpenSIPS template
+#
+# Target version: OpenSIPS 3.6 LTS
+# Validate with: opensips -C -f /etc/opensips/opensips.cfg
+#
+
+log_level=3
+xlog_level=3
+udp_workers=4
+
+mpath="/usr/lib/x86_64-linux-gnu/opensips/modules/"
+
+# TODO: adjust if the LXC IP changes.
+socket=udp:192.168.1.80:5060
+socket=ws:192.168.1.80:5066
+tcp_connection_lifetime=3700
+
+# TODO: enable native WSS only if TLS certificates are installed directly on
+# this proxy. Current recommended setup: terminate TLS in aaPanel and reverse
+# proxy WSS to ws://192.168.1.80:5066.
+# socket=wss:192.168.1.80:7444
+
+loadmodule "signaling.so"
+loadmodule "sl.so"
+loadmodule "tm.so"
+loadmodule "rr.so"
+loadmodule "maxfwd.so"
+loadmodule "sipmsgops.so"
+loadmodule "textops.so"
+loadmodule "proto_udp.so"
+loadmodule "proto_ws.so"
+loadmodule "db_sqlite.so"
+loadmodule "sqlops.so"
+loadmodule "usrloc.so"
+loadmodule "nathelper.so"
+loadmodule "rtpengine.so"
+loadmodule "mid_registrar.so"
+loadmodule "event_routing.so"
+loadmodule "rest_client.so"
+
+# Uncomment with WSS support.
+# loadmodule "tls_mgm.so"
+# loadmodule "proto_wss.so"
+
+modparam("proto_ws", "require_origin", no)
+
+modparam("tm", "fr_timeout", 6)
+modparam("tm", "fr_inv_timeout", 45)
+modparam("rr", "append_fromtag", 1)
+
+modparam("usrloc", "use_domain", 1)
+modparam("usrloc", "db_url", "sqlite:///var/lib/opensips/opensips.db")
+modparam("usrloc", "working_mode_preset", "single-instance-sql-write-through")
+
+modparam("nathelper", "received_avp", "$avp(rcv)")
+
+modparam("sqlops", "db_url", "sqlite:///var/lib/opensips/opensips.db")
+
+modparam("rtpengine", "rtpengine_sock", "udp:127.0.0.1:2223")
+
+# mode=1 keeps one upstream contact per device while still throttling
+# registrations. This is important for WebRTC clients: FusionPBX/FreeSWITCH
+# must still see a WebRTC-flavoured contact instead of a single aggregated
+# OpenSIPS AOR contact, otherwise it sends a classic RTP/AVP SDP with no DTLS
+# fingerprint and Android refuses the call.
+modparam("mid_registrar", "mode", 1)
+modparam("mid_registrar", "outgoing_expires", 3600)
+modparam("mid_registrar", "received_avp", "$avp(rcv)")
+modparam("mid_registrar", "pn_enable", true)
+modparam("mid_registrar", "pn_providers", "fcm")
+modparam("mid_registrar", "pn_ct_match_params", "pn-provider,pn-prid,pn-param")
+modparam("mid_registrar", "pn_refresh_timeout", 45)
+modparam("mid_registrar", "pn_skip_pn_interval", 150)
+
+modparam("rest_client", "connection_timeout", 2)
+modparam("rest_client", "curl_timeout", 10)
+
+route {
+    xlog("L_INFO", "REQ method=$rm si=$si sp=$sp ru=$ru du=$du ci=$ci\n");
+
+    if (!mf_process_maxfwd_header(10)) {
+        send_reply(483, "Too Many Hops");
+        exit;
+    }
+
+    if (is_method("CANCEL")) {
+        if (t_check_trans()) {
+            xlog("L_INFO", "Relaying CANCEL for $ci\n");
+            route(notify_cancelled_call);
+            rtpengine_delete();
+            t_relay();
+        }
+
+        exit;
+    }
+
+    if (has_totag()) {
+        if (loose_route()) {
+            if (is_method("BYE")) {
+                rtpengine_delete();
+            }
+
+            route(resolve_webrtc_dialog_destination);
+
+            if (has_body("application/sdp")) {
+                if ($si == "192.168.1.79") {
+                    route(media_to_webrtc);
+                    t_on_reply("media_from_webrtc");
+                } else {
+                    route(media_to_sip);
+                    t_on_reply("media_from_sip");
+                }
+            }
+
+            t_relay();
+            exit;
+        }
+
+        send_reply(404, "Not Found");
+        exit;
+    }
+
+    if (is_method("REGISTER")) {
+        route(handle_register);
+        exit;
+    }
+
+    if (is_method("INVITE|MESSAGE")) {
+        route(handle_initial_request);
+        exit;
+    }
+
+    send_reply(405, "Method Not Allowed");
+}
+
+route[notify_cancelled_call] {
+    $var(extension) = NULL;
+    route(resolve_extension_from_contact_id);
+
+    if ($var(extension) == NULL || $var(extension) == "") {
+        $var(extension) = $tU;
+        if ($var(extension) == NULL || $var(extension) == "") {
+            $var(extension) = $rU;
+        }
+    }
+
+    if ($var(extension) == NULL || $var(extension) == "") {
+        xlog("L_WARN", "Cannot notify cancelled call without extension ci=$ci\n");
+        return;
+    }
+
+    rest_append_hf("x-api-key: CHANGE_ME_API_KEY");
+    $var(payload) = "{\"extension\":\"" + $var(extension) + "\",\"callId\":\"" + $ci + "\"}";
+    $var(rc) = rest_post("http://127.0.0.1:8088/v1/push/call-ended", $var(payload), "application/json", $var(body), $var(ct), $var(code));
+
+    if ($var(rc) < 0 || $var(code) >= 300) {
+        xlog("L_WARN", "Cancelled call push failed ext=$var(extension) rc=$var(rc) http=$var(code) body=$var(body)\n");
+    } else {
+        xlog("L_INFO", "Cancelled call push sent ext=$var(extension) ci=$ci\n");
+    }
+}
+
+route[handle_register] {
+    fix_nated_register();
+    mid_registrar_save("location");
+
+    if ($retcode == 1) {
+        xlog("L_INFO", "Forwarding REGISTER to FusionPBX for $tu\n");
+        $du = "sip:192.168.1.79:5060";
+        t_relay();
+        exit;
+    }
+
+    if ($retcode == 2) {
+        xlog("L_DBG", "Absorbed REGISTER for $tu\n");
+        exit;
+    }
+
+    xlog("L_WARN", "Unexpected mid_registrar_save return $retcode for $tu\n");
+    send_reply(500, "Registration Error");
+    exit;
+}
+
+route[handle_initial_request] {
+    # Requests from FusionPBX to registered Android clients.
+    if ($si == "192.168.1.79") {
+        if (is_method("INVITE")) {
+            if (!t_newtran()) {
+                send_reply(500, "Transaction Error");
+                exit;
+            }
+            t_wait_for_new_branches();
+        }
+
+        $var(lookup_rc) = mid_registrar_lookup("location");
+        if ($var(lookup_rc) == 1) {
+            record_route();
+            if (has_body("application/sdp")) {
+                route(media_to_webrtc);
+                t_on_reply("media_from_webrtc");
+            }
+            t_relay();
+            exit;
+        }
+
+        if ($var(lookup_rc) == 2) {
+            xlog("L_INFO", "Push triggered for sleeping contact $ru\n");
+            route(wake_android_fallback);
+            exit;
+        }
+
+        xlog("L_INFO", "No local contact for $ru; triggering Android fallback push\n");
+        route(wake_android_fallback);
+
+        $var(lookup_rc) = mid_registrar_lookup("location");
+        if ($var(lookup_rc) != 1) {
+            route(lookup_by_contact_id);
+            $var(lookup_rc) = $retcode;
+        }
+
+        if ($var(lookup_rc) == 1) {
+            xlog("L_INFO", "Android contact woke up for $ru; relaying INVITE\n");
+            record_route();
+            if (has_body("application/sdp")) {
+                route(media_to_webrtc);
+                t_on_reply("media_from_webrtc");
+            }
+            t_relay();
+            exit;
+        }
+
+        if ($var(lookup_rc) == 2) {
+            xlog("L_INFO", "Fallback push accepted for sleeping contact $ru\n");
+            exit;
+        }
+
+        send_reply(480, "Temporarily Unavailable");
+        exit;
+    }
+
+    # Requests from Android clients to FusionPBX.
+    record_route();
+    $du = "sip:192.168.1.79:5060";
+    if (has_body("application/sdp")) {
+        route(media_to_sip);
+        t_on_reply("media_from_sip");
+    }
+    t_relay();
+}
+
+route[lookup_by_contact_id] {
+    $var(ctid) = $(ru{uri.param,ctid});
+    if ($var(ctid) == NULL || $var(ctid) == "") {
+        return(-1);
+    }
+
+    if (!($var(ctid) =~ "^[0-9]+$")) {
+        xlog("L_WARN", "Ignoring non-numeric contact id ctid=$var(ctid) ci=$ci\n");
+        return(-1);
+    }
+
+    $var(ct_contact) = NULL;
+    $var(ct_received) = NULL;
+    $var(ct_username) = NULL;
+
+    if (!sql_query_one("select contact, received, username from location where contact_id = $var(ctid) and expires > $Ts", "$var(ct_contact);$var(ct_received);$var(ct_username)")) {
+        xlog("L_INFO", "No local contact for ctid=$var(ctid) ci=$ci\n");
+        return(-1);
+    }
+
+    if ($var(ct_contact) == NULL || $var(ct_contact) == "" || $var(ct_contact) == "<null>") {
+        xlog("L_WARN", "Empty contact for ctid=$var(ctid) ci=$ci\n");
+        return(-1);
+    }
+
+    xlog("L_INFO", "Resolved ctid=$var(ctid) to user=$var(ct_username) contact=$var(ct_contact) received=$var(ct_received) ci=$ci\n");
+    $ru = $var(ct_contact);
+
+    if ($var(ct_received) != NULL && $var(ct_received) != "" && $var(ct_received) != "<null>") {
+        $du = $var(ct_received);
+    }
+
+    return(1);
+}
+
+route[resolve_webrtc_dialog_destination] {
+    if ($du != NULL && $du != "") {
+        return;
+    }
+
+    if ($rU == NULL || $rU == "" || $rd == NULL || $rd == "") {
+        return;
+    }
+
+    if (!($rU =~ "^[A-Za-z0-9._~+-]+$") || !($rd =~ "^[A-Za-z0-9.-]+$")) {
+        xlog("L_WARN", "Ignoring unsafe WebRTC dialog target user=$rU host=$rd ci=$ci\n");
+        return;
+    }
+
+    if (!($rd =~ "invalid$")) {
+        return;
+    }
+
+    $var(ct_contact) = NULL;
+    $var(ct_received) = NULL;
+
+    if (!sql_query_one("select contact, received from location where contact like 'sip:$rU@$rd%' and expires > $Ts order by last_modified desc limit 1", "$var(ct_contact);$var(ct_received)")) {
+        $var(dialog_user) = $tU;
+        if ($var(dialog_user) == NULL || $var(dialog_user) == "") {
+            $var(dialog_user) = $rU;
+        }
+
+        if ($var(dialog_user) == NULL || $var(dialog_user) == "" || !($var(dialog_user) =~ "^[A-Za-z0-9._~+-]+$")) {
+            xlog("L_WARN", "Cannot resolve WebRTC dialog target user=$rU host=$rd dialog_user=$var(dialog_user) ci=$ci\n");
+            return;
+        }
+
+        if (!sql_query_one("select contact, received from location where username = '$var(dialog_user)' and expires > $Ts order by last_modified desc limit 1", "$var(ct_contact);$var(ct_received)")) {
+            xlog("L_WARN", "Cannot resolve active WebRTC contact for user=$var(dialog_user) target=$rU@$rd ci=$ci\n");
+            return;
+        }
+
+        xlog("L_INFO", "Resolved stale WebRTC dialog target $rU@$rd via active user=$var(dialog_user) ci=$ci\n");
+    }
+
+    if ($var(ct_contact) != NULL && $var(ct_contact) != "" && $var(ct_contact) != "<null>") {
+        $ru = $var(ct_contact);
+    }
+
+    if ($var(ct_received) != NULL && $var(ct_received) != "" && $var(ct_received) != "<null>") {
+        $du = $var(ct_received);
+        xlog("L_INFO", "Resolved WebRTC dialog target user=$rU host=$rd du=$du ci=$ci\n");
+    }
+}
+
+route[media_to_webrtc] {
+    xlog("L_INFO", "RTPEngine offer toward WebRTC ci=$ci\n");
+    if (!rtpengine_offer("replace-origin replace-session-connection UDP/TLS/RTP/SAVPF ICE=force DTLS=passive SDES-off rtcp-mux-offer rtcp-mux-require no-rtcp-attribute generate-mid")) {
+        xlog("L_ERR", "RTPEngine WebRTC offer failed ci=$ci\n");
+        send_reply(500, "Media Proxy Error");
+        exit;
+    }
+}
+
+route[media_to_sip] {
+    xlog("L_INFO", "RTPEngine offer toward SIP/RTP ci=$ci\n");
+    if (!rtpengine_offer("replace-origin replace-session-connection RTP/AVP ICE=remove DTLS=off")) {
+        xlog("L_ERR", "RTPEngine SIP offer failed ci=$ci\n");
+        send_reply(500, "Media Proxy Error");
+        exit;
+    }
+}
+
+onreply_route[media_from_webrtc] {
+    if (has_body("application/sdp")) {
+        xlog("L_INFO", "RTPEngine answer from WebRTC toward SIP/RTP ci=$ci\n");
+        if (!rtpengine_answer("replace-origin replace-session-connection RTP/AVP ICE=remove DTLS=off")) {
+            xlog("L_ERR", "RTPEngine WebRTC answer failed ci=$ci\n");
+        }
+    }
+}
+
+onreply_route[media_from_sip] {
+    if (has_body("application/sdp")) {
+        xlog("L_INFO", "RTPEngine answer from SIP/RTP toward WebRTC ci=$ci\n");
+        if (!rtpengine_answer("replace-origin replace-session-connection UDP/TLS/RTP/SAVPF ICE=force DTLS=passive SDES-off rtcp-mux-offer rtcp-mux-require no-rtcp-attribute generate-mid")) {
+            xlog("L_ERR", "RTPEngine SIP answer failed ci=$ci\n");
+        }
+    }
+}
+
+route[wake_android_fallback] {
+    $var(extension) = NULL;
+    route(resolve_extension_from_contact_id);
+
+    if ($var(extension) == NULL || $var(extension) == "") {
+        $var(extension) = $rU;
+        if ($var(extension) == NULL || $var(extension) == "") {
+            $var(extension) = $tU;
+        }
+    }
+
+    if ($var(extension) == NULL || $var(extension) == "") {
+        xlog("L_WARN", "Cannot wake Android fallback without extension ci=$ci\n");
+        return;
+    }
+
+    rest_append_hf("x-api-key: CHANGE_ME_API_KEY");
+    $var(payload) = "{\"extension\":\"" + $var(extension) + "\",\"caller\":\"" + $fU + "\",\"callId\":\"" + $ci + "\",\"waitMs\":6000}";
+    $var(rc) = rest_post("http://127.0.0.1:8088/v1/push/incoming-call-wait", $var(payload), "application/json", $var(body), $var(ct), $var(code));
+
+    if ($var(rc) < 0 || $var(code) >= 300) {
+        xlog("L_WARN", "Android fallback push failed ext=$var(extension) rc=$var(rc) http=$var(code) body=$var(body)\n");
+    } else {
+        xlog("L_INFO", "Android fallback push sent ext=$var(extension) ci=$ci body=$var(body)\n");
+    }
+}
+
+route[resolve_extension_from_contact_id] {
+    $var(ctid) = $(ru{uri.param,ctid});
+    if ($var(ctid) == NULL || $var(ctid) == "") {
+        return(-1);
+    }
+
+    if (!($var(ctid) =~ "^[0-9]+$")) {
+        return(-1);
+    }
+
+    $var(ct_username) = NULL;
+    if (!sql_query_one("select username from location where contact_id = $var(ctid) and expires > $Ts", "$var(ct_username)")) {
+        return(-1);
+    }
+
+    if ($var(ct_username) == NULL || $var(ct_username) == "" || $var(ct_username) == "<null>") {
+        return(-1);
+    }
+
+    $var(extension) = $var(ct_username);
+    return(1);
+}
+
+event_route[E_UL_CONTACT_REFRESH] {
+    $var(pn_provider) = $(param(uri){uri.param,pn-provider});
+    $var(pn_prid) = $(param(uri){uri.param,pn-prid});
+    $var(pn_param) = $(param(uri){uri.param,pn-param});
+
+    xlog("L_INFO", "SIP push wake provider=$var(pn_provider) prid=$var(pn_prid) param=$var(pn_param)\n");
+
+    # Replace CHANGE_ME_API_KEY with API_KEY from /etc/sfait-push-gateway.env.
+    rest_append_hf("x-api-key: CHANGE_ME_API_KEY");
+    $var(payload) = "{\"pn-provider\":\"" + $var(pn_provider) + "\",\"pn-prid\":\"" + $var(pn_prid) + "\",\"pn-param\":\"" + $var(pn_param) + "\"}";
+    $var(rc) = rest_post("http://127.0.0.1:8088/v1/push/sip-wake", $var(payload), "application/json", $var(body), $var(ct), $var(code));
+
+    if ($var(rc) < 0 || $var(code) >= 300) {
+        xlog("L_WARN", "SIP push wake failed rc=$var(rc) http=$var(code) body=$var(body)\n");
+    }
+}

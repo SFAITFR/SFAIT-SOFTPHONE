@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "370812488113",
+    "project_id": "sfait-softphone",
+    "storage_bucket": "sfait-softphone.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:370812488113:android:fa1a54dd6e9863d6075590",
+        "android_client_info": {
+          "package_name": "fr.sfait.softphone"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC--_nlPJIOpv9cQ8RrPGyppt0Y9-4bv1s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
